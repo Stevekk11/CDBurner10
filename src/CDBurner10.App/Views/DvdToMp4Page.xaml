@@ -10,7 +10,7 @@
             <StackPanel Spacing="4">
                 <TextBlock Text="DVD to MP4" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock
-                    Text="Convert the main movie from a DVD-Video ISO or VIDEO_TS folder into a normal MP4 file. Menus, warnings and short advert titles are skipped automatically."
+                    Text="Convert the main movie directly from a DVD optical drive (single pass, no intermediate ISO needed), a DVD-Video ISO, or a VIDEO_TS folder into MP4. Menus, warnings and short advert titles are skipped automatically."
                     Style="{StaticResource BodyTextBlockStyle}"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     TextWrapping="Wrap" />
@@ -27,7 +27,47 @@
                 Padding="20">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Source DVD" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <Grid ColumnSpacing="10">
+
+                    <RadioButtons
+                        x:Name="SourceModeRadio"
+                        MaxColumns="2"
+                        SelectedIndex="0"
+                        SelectionChanged="SourceModeRadio_SelectionChanged">
+                        <x:String>Optical Drive (Direct single-pass)</x:String>
+                        <x:String>ISO File / VIDEO_TS Folder</x:String>
+                    </RadioButtons>
+
+                    <!-- Direct Optical Drive Panel -->
+                    <StackPanel x:Name="OpticalSourcePanel" Spacing="8">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                x:Name="SourceDriveComboBox"
+                                Grid.Column="0"
+                                HorizontalAlignment="Stretch"
+                                Header="Optical Drive"
+                                DisplayMemberPath="DisplayName"
+                                SelectionChanged="SourceDriveComboBox_SelectionChanged" />
+                            <Button
+                                x:Name="RefreshDriveButton"
+                                Grid.Column="1"
+                                Content="Refresh"
+                                VerticalAlignment="Bottom"
+                                Click="RefreshDriveButton_Click" />
+                        </Grid>
+                        <TextBlock
+                            x:Name="DriveStatusText"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap"
+                            Text="Checking optical drive..." />
+                    </StackPanel>
+
+                    <!-- File / Folder Panel -->
+                    <Grid x:Name="FileSourcePanel" ColumnSpacing="10" Visibility="Collapsed">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -37,7 +77,7 @@
                             x:Name="SourcePathBox"
                             Grid.Column="0"
                             Header="DVD-Video ISO or VIDEO_TS folder"
-                            PlaceholderText="Select a decrypted .iso file or a VIDEO_TS folder..."
+                            PlaceholderText="Select or drop a .iso file or VIDEO_TS folder..."
                             TextChanged="SourcePathBox_TextChanged" />
                         <Button
                             x:Name="BrowseIsoButton"
@@ -52,12 +92,13 @@
                             VerticalAlignment="Bottom"
                             Click="BrowseFolderButton_Click" />
                     </Grid>
+
                     <TextBlock
                         x:Name="DvdInfoText"
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         TextWrapping="Wrap"
-                        Text="Choose a source to detect the movie length and available audio/subtitle tracks." />
+                        Text="Insert a DVD-Video disc or choose an ISO / VIDEO_TS folder to detect movie length and tracks." />
                 </StackPanel>
             </Border>
 
@@ -94,6 +135,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <ComboBox
                             x:Name="AudioComboBox"
@@ -117,6 +159,15 @@
                             <ComboBoxItem Content="High quality (CRF 18)" Tag="18;slow" />
                             <ComboBoxItem Content="Balanced (CRF 21)" Tag="21;medium" />
                             <ComboBoxItem Content="Smaller file (CRF 24)" Tag="24;fast" />
+                        </ComboBox>
+                        <ComboBox
+                            x:Name="EncoderComboBox"
+                            Grid.Column="3"
+                            HorizontalAlignment="Stretch"
+                            Header="Encoder"
+                            SelectedIndex="0">
+                            <ComboBoxItem Content="Auto (GPU if available)" Tag="auto" />
+                            <ComboBoxItem Content="CPU (libx264)" Tag="sw" />
                         </ComboBox>
                     </Grid>
 

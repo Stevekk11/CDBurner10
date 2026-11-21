@@ -365,15 +365,48 @@ internal static class Commands
         }
 
         string? source = options.FilesAndFolders.FirstOrDefault().SourcePath;
+        if (string.IsNullOrWhiteSpace(source) && !string.IsNullOrWhiteSpace(options.RawDeviceArg))
+        {
+            if (DvdVideoConverter.TryExtractDriveLetter(options.RawDeviceArg, out char driveLetter))
+            {
+                source = DvdVideoConverter.GetDriveSourcePath(driveLetter.ToString());
+            }
+            else if (short.TryParse(options.RawDeviceArg, out short devIdx))
+            {
+                BurningEngine.Initialize();
+                try
+                {
+                    var drive = BurningEngine.GetDrive(devIdx);
+                    if (drive is not null && !string.IsNullOrWhiteSpace(drive.Letter))
+                        source = DvdVideoConverter.GetDriveSourcePath(drive.Letter);
+                }
+                finally
+                {
+                    BurningEngine.Uninitialize();
+                }
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(source))
         {
-            Console.WriteLine("Specify a source DVD ISO or VIDEO_TS folder with -file:<path> or -folder:<path>.");
+            Console.WriteLine("Specify a source optical drive (-device:<letter|index>), DVD ISO (-file:<path>), or VIDEO_TS folder (-folder:<path>).");
             return -1;
         }
 
-        string destination = options.Arguments.TryGetValue("-out", out var outArg) && !string.IsNullOrWhiteSpace(outArg)
-            ? outArg.Trim()
-            : Path.ChangeExtension(Path.GetFullPath(source), ".mp4");
+        string destination;
+        if (options.Arguments.TryGetValue("-out", out var outArg) && !string.IsNullOrWhiteSpace(outArg))
+        {
+            destination = outArg.Trim();
+        }
+        else if (DvdVideoConverter.TryExtractDriveLetter(source, out char dl))
+        {
+            string label = DvdVideoConverter.GetSuggestedDriveOutputName(dl.ToString());
+            destination = Path.Combine(Environment.CurrentDirectory, label + ".mp4");
+        }
+        else
+        {
+            destination = Path.ChangeExtension(Path.GetFullPath(source), ".mp4");
+        }
 
         int titleNumber = options.Arguments.TryGetValue("-title", out var titleArg) && int.TryParse(titleArg, out var t)
             ? Math.Clamp(t, 0, 99)
@@ -392,10 +425,12 @@ internal static class Commands
             : "medium";
         bool stereoDownmix = !options.Flags.Contains("-no-downmix");
         bool deinterlace = !options.Flags.Contains("-no-deinterlace");
+        var encoder = options.Flags.Contains("-sw") ? DvdVideoEncoder.Software : DvdVideoEncoder.Auto;
 
         try
         {
-            Console.WriteLine("Probing DVD-Video source \"{0}\"...", source);
+            string resolvedEncoder = DvdVideoConverter.ResolveVideoEncoder(encoder);
+            Console.WriteLine("Probing DVD-Video source \"{0}\" (encoder: {1})...", source, resolvedEncoder);
             var info = DvdVideoConverter.ProbeAsync(source, titleNumber).GetAwaiter().GetResult();
             Console.WriteLine("Detected title: {0:hh\\:mm\\:ss}, {1}x{2}, {3} audio, {4} subtitle track(s).",
                 info.Duration, info.Width, info.Height, info.AudioTracks.Count, info.SubtitleTracks.Count);
@@ -408,7 +443,8 @@ internal static class Commands
                 Crf = crf,
                 Preset = preset,
                 StereoDownmix = stereoDownmix,
-                Deinterlace = deinterlace
+                Deinterlace = deinterlace,
+                Encoder = encoder
             };
 
             int lastPercent = -1;

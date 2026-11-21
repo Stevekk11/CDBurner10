@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using CDBurner10.App.Converters;
 using CDBurner10.App.Services;
+using CDBurner10.Core.Burning;
 using CDBurner10.Core.Dvd;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -18,6 +19,7 @@ public sealed partial class DvdToMp4Page : Page
     private CancellationTokenSource? _probeCts;
     private DvdVideoInfo? _info;
     private bool _isBusy;
+    private bool _navigatedWithFile;
     private string _lastOutput = string.Empty;
     private string? _autoDestination;
 
@@ -28,32 +30,70 @@ public sealed partial class DvdToMp4Page : Page
         Unloaded += DvdToMp4Page_Unloaded;
     }
 
+    private bool IsOpticalMode => SourceModeRadio.SelectedIndex == 0;
+
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         if (e.Parameter is string source && !string.IsNullOrWhiteSpace(source))
+        {
+            _navigatedWithFile = true;
+            SourceModeRadio.SelectedIndex = 1;
             SourcePathBox.Text = source;
+        }
     }
 
-    private void DvdToMp4Page_Loaded(object sender, RoutedEventArgs e)
+    private async void DvdToMp4Page_Loaded(object sender, RoutedEventArgs e)
     {
-        RefreshFfmpegStatus();
+        AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
+        PopulateDrives();
+
+        if (!_navigatedWithFile)
+        {
+            SourceModeRadio.SelectedIndex = AppServices.Current.Drives.Count > 0 ? 0 : 1;
+        }
+        UpdateSourceModeUi();
+
+        await RefreshFfmpegStatusAsync();
     }
 
     private void DvdToMp4Page_Unloaded(object sender, RoutedEventArgs e)
     {
+        AppServices.Current.DrivesRefreshed -= OnDrivesRefreshed;
         _probeCts?.Cancel();
         _probeCts = null;
     }
 
-    private void RefreshFfmpegStatus()
+    private void OnDrivesRefreshed(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(PopulateDrives);
+    }
+
+    private void PopulateDrives()
+    {
+        var drives = AppServices.Current.Drives;
+        var prev = SourceDriveComboBox.SelectedItem as DriveModel ?? AppServices.Current.SelectedDrive;
+
+        SourceDriveComboBox.ItemsSource = null;
+        SourceDriveComboBox.ItemsSource = drives;
+        SourceDriveComboBox.DisplayMemberPath = nameof(DriveModel.DisplayName);
+        SourceDriveComboBox.SelectedItem = drives.FirstOrDefault(d => d.Letter == prev?.Letter) ?? drives.FirstOrDefault();
+
+        if (IsOpticalMode)
+            _ = UpdateSelectedDriveAsync();
+    }
+
+    private async Task RefreshFfmpegStatusAsync()
     {
         if (!DvdVideoConverter.IsAvailable)
             DvdVideoConverter.ResetToolCache();
 
         if (DvdVideoConverter.IsAvailable)
         {
-            FfmpegStatusText.Text = $"ffmpeg ready: {Path.GetFileName(DvdVideoConverter.FfmpegPath)}";
+            FfmpegStatusText.Text = "Checking GPU encoder...";
+            string? hw = await Task.Run(DvdVideoConverter.DetectHardwareEncoder);
+            string hwLabel = hw is not null ? $"GPU: {hw}" : "CPU: libx264";
+            FfmpegStatusText.Text = $"ffmpeg ready • {hwLabel}";
             ToolTipService.SetToolTip(FfmpegStatusText, DvdVideoConverter.FfmpegPath);
             if (StatusInfoBar.Title == "ffmpeg Not Found")
                 StatusInfoBar.IsOpen = false;
@@ -62,6 +102,77 @@ public sealed partial class DvdToMp4Page : Page
         {
             FfmpegStatusText.Text = "ffmpeg not found";
             ShowStatus(InfoBarSeverity.Warning, "ffmpeg Not Found", DvdVideoConverter.InstallHint);
+        }
+    }
+
+    private void SourceModeRadio_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        UpdateSourceModeUi();
+    }
+
+    private void UpdateSourceModeUi()
+    {
+        bool optical = IsOpticalMode;
+        OpticalSourcePanel.Visibility = optical ? Visibility.Visible : Visibility.Collapsed;
+        FileSourcePanel.Visibility = optical ? Visibility.Collapsed : Visibility.Visible;
+
+        if (optical)
+        {
+            _ = UpdateSelectedDriveAsync();
+        }
+        else
+        {
+            UpdateDefaultDestination();
+            string src = SourcePathBox.Text?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(src))
+                _ = ProbeSourceAsync(src);
+            else
+                ResetInfo();
+        }
+    }
+
+    private void SourceDriveComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || !IsOpticalMode || _isBusy) return;
+        _ = UpdateSelectedDriveAsync();
+    }
+
+    private void RefreshDriveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isBusy) return;
+        _ = UpdateSelectedDriveAsync();
+    }
+
+    private async Task UpdateSelectedDriveAsync()
+    {
+        var drive = SourceDriveComboBox.SelectedItem as DriveModel;
+        if (drive is null)
+        {
+            DriveStatusText.Text = "No optical drive detected. Switch to ISO / VIDEO_TS Folder mode to convert local files.";
+            ResetInfo();
+            return;
+        }
+
+        DriveStatusText.Text = "Checking inserted disc...";
+        var info = await drive.RefreshDiscInfoAsync();
+        if (!IsOpticalMode) return;
+
+        if (!info.HasDisc)
+        {
+            DriveStatusText.Text = "No disc inserted in drive. Insert a DVD-Video disc and click Refresh.";
+            ResetInfo();
+            return;
+        }
+
+        string protection = info.IsCssProtected ? " • CSS protected (decrypted directly on the fly)" : string.Empty;
+        DriveStatusText.Text = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used{protection}";
+
+        if (!string.IsNullOrWhiteSpace(drive.Letter))
+        {
+            string driveSource = DvdVideoConverter.GetDriveSourcePath(drive.Letter);
+            UpdateDefaultDestination();
+            await ProbeSourceAsync(driveSource);
         }
     }
 
@@ -82,6 +193,7 @@ public sealed partial class DvdToMp4Page : Page
             {
                 if (item is StorageFolder folder && !string.IsNullOrWhiteSpace(folder.Path))
                 {
+                    SourceModeRadio.SelectedIndex = 1;
                     SourcePathBox.Text = folder.Path;
                     return;
                 }
@@ -89,6 +201,7 @@ public sealed partial class DvdToMp4Page : Page
                     !string.IsNullOrWhiteSpace(file.Path) &&
                     file.Path.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
                 {
+                    SourceModeRadio.SelectedIndex = 1;
                     SourcePathBox.Text = file.Path;
                     return;
                 }
@@ -103,7 +216,7 @@ public sealed partial class DvdToMp4Page : Page
     private async void TitleNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         if (_isBusy || !IsLoaded) return;
-        string source = SourcePathBox.Text?.Trim() ?? string.Empty;
+        string source = GetActiveSourcePath();
         if (string.IsNullOrWhiteSpace(source)) return;
         await ProbeSourceAsync(source);
     }
@@ -112,6 +225,18 @@ public sealed partial class DvdToMp4Page : Page
     {
         double val = TitleNumberBox.Value;
         return double.IsNaN(val) ? 0 : Math.Clamp((int)Math.Round(val), 0, 99);
+    }
+
+    private string GetActiveSourcePath()
+    {
+        if (IsOpticalMode)
+        {
+            var drive = SourceDriveComboBox.SelectedItem as DriveModel;
+            return !string.IsNullOrWhiteSpace(drive?.Letter)
+                ? DvdVideoConverter.GetDriveSourcePath(drive.Letter)
+                : string.Empty;
+        }
+        return SourcePathBox.Text?.Trim() ?? string.Empty;
     }
 
     private async void BrowseIsoButton_Click(object sender, RoutedEventArgs e)
@@ -130,7 +255,7 @@ public sealed partial class DvdToMp4Page : Page
 
     private async void BrowseDestButton_Click(object sender, RoutedEventArgs e)
     {
-        string suggested = BuildSuggestedOutputName(SourcePathBox.Text?.Trim() ?? string.Empty);
+        string suggested = BuildSuggestedOutputName(GetActiveSourcePath());
         var path = await FilePickerHelper.PickSaveFileAsync(suggested, new Dictionary<string, IList<string>>
         {
             ["MP4 Video"] = [".mp4"]
@@ -144,6 +269,7 @@ public sealed partial class DvdToMp4Page : Page
 
     private async void SourcePathBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        if (IsOpticalMode) return;
         UpdateDefaultDestination();
 
         if (_isBusy) return;
@@ -226,7 +352,7 @@ public sealed partial class DvdToMp4Page : Page
     {
         _info = null;
         ResetTrackLists();
-        DvdInfoText.Text = "Choose a source to detect the movie length and available audio/subtitle tracks.";
+        DvdInfoText.Text = "Insert a DVD-Video disc or choose an ISO / VIDEO_TS folder to detect movie length and tracks.";
     }
 
     private void ResetTrackLists()
@@ -237,7 +363,7 @@ public sealed partial class DvdToMp4Page : Page
 
     private void UpdateDefaultDestination()
     {
-        string source = SourcePathBox.Text?.Trim() ?? string.Empty;
+        string source = GetActiveSourcePath();
         if (string.IsNullOrWhiteSpace(source)) return;
 
         string suggested = BuildSuggestedOutputPath(source);
@@ -253,6 +379,15 @@ public sealed partial class DvdToMp4Page : Page
     {
         try
         {
+            if (DvdVideoConverter.TryExtractDriveLetter(source, out char letter))
+            {
+                string videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                if (string.IsNullOrWhiteSpace(videos))
+                    videos = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string label = DvdVideoConverter.GetSuggestedDriveOutputName(letter.ToString());
+                return Path.Combine(videos, label + ".mp4");
+            }
+
             string full = Path.GetFullPath(source);
             if (Directory.Exists(full))
             {
@@ -293,17 +428,20 @@ public sealed partial class DvdToMp4Page : Page
     {
         if (_isBusy) return;
 
-        RefreshFfmpegStatus();
+        await RefreshFfmpegStatusAsync();
         if (!DvdVideoConverter.IsAvailable)
         {
             ShowStatus(InfoBarSeverity.Error, "ffmpeg Not Found", DvdVideoConverter.InstallHint);
             return;
         }
 
-        string source = SourcePathBox.Text?.Trim() ?? string.Empty;
+        string source = GetActiveSourcePath();
         if (string.IsNullOrWhiteSpace(source))
         {
-            ShowStatus(InfoBarSeverity.Warning, "Source Missing", "Select a DVD-Video ISO or VIDEO_TS folder first.");
+            ShowStatus(InfoBarSeverity.Warning, "Source Missing",
+                IsOpticalMode
+                    ? "Select an optical drive containing a DVD-Video disc first."
+                    : "Select a DVD-Video ISO or VIDEO_TS folder first.");
             return;
         }
 
@@ -342,6 +480,10 @@ public sealed partial class DvdToMp4Page : Page
             }
         }
 
+        var encoderPref = (EncoderComboBox.SelectedItem as ComboBoxItem)?.Tag as string == "sw"
+            ? DvdVideoEncoder.Software
+            : DvdVideoEncoder.Auto;
+
         var options = new DvdMp4Options
         {
             TitleNumber = GetSelectedTitleNumber(),
@@ -350,8 +492,11 @@ public sealed partial class DvdToMp4Page : Page
             Crf = crf,
             Preset = preset,
             StereoDownmix = StereoDownmixCheckBox.IsChecked == true,
-            Deinterlace = DeinterlaceCheckBox.IsChecked == true
+            Deinterlace = DeinterlaceCheckBox.IsChecked == true,
+            Encoder = encoderPref
         };
+
+        string resolvedEncoder = await Task.Run(() => DvdVideoConverter.ResolveVideoEncoder(encoderPref));
 
         _isBusy = true;
         SetBusyUi(true);
@@ -361,7 +506,10 @@ public sealed partial class DvdToMp4Page : Page
         ProgressCard.Visibility = Visibility.Visible;
         ConvertProgressBar.Value = 0;
         ProgressPercentText.Text = "0%";
-        ProgressStatusText.Text = $"Converting {Path.GetFileName(source)}...";
+        string sourceLabel = DvdVideoConverter.TryExtractDriveLetter(source, out char dl)
+            ? $"DVD ({dl}:\\)"
+            : Path.GetFileName(source);
+        ProgressStatusText.Text = $"Converting {sourceLabel} ({resolvedEncoder})...";
         ProgressDetailText.Text = string.Empty;
 
         _cts = new CancellationTokenSource();
@@ -369,7 +517,7 @@ public sealed partial class DvdToMp4Page : Page
         {
             ConvertProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
             ProgressPercentText.Text = $"{p.Percent}%";
-            ProgressStatusText.Text = p.Message;
+            ProgressStatusText.Text = $"{p.Message} ({resolvedEncoder})";
             var details = new List<string>();
             if (p.Fps > 0) details.Add($"{p.Fps:0} fps");
             if (p.Speed > 0) details.Add($"{p.Speed:0.0}×");
@@ -443,6 +591,9 @@ public sealed partial class DvdToMp4Page : Page
     {
         ConvertButton.IsEnabled = !busy;
         CancelButton.IsEnabled = busy;
+        SourceModeRadio.IsEnabled = !busy;
+        SourceDriveComboBox.IsEnabled = !busy;
+        RefreshDriveButton.IsEnabled = !busy;
         SourcePathBox.IsEnabled = !busy;
         DestinationPathBox.IsEnabled = !busy;
         BrowseIsoButton.IsEnabled = !busy;
@@ -451,6 +602,7 @@ public sealed partial class DvdToMp4Page : Page
         AudioComboBox.IsEnabled = !busy;
         SubtitleComboBox.IsEnabled = !busy;
         QualityComboBox.IsEnabled = !busy;
+        EncoderComboBox.IsEnabled = !busy;
         StereoDownmixCheckBox.IsEnabled = !busy;
         DeinterlaceCheckBox.IsEnabled = !busy;
         TitleNumberBox.IsEnabled = !busy;
@@ -464,4 +616,3 @@ public sealed partial class DvdToMp4Page : Page
         StatusInfoBar.IsOpen = true;
     }
 }
-

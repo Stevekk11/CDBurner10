@@ -21,7 +21,7 @@ public sealed partial class HomeViewModel : ObservableObject
         new("audio", "Audio Disc", "Red Book CD-DA", "Create standard Audio CDs from MP3, FLAC, WAV, OGG, and playlists with CD-Text, ReplayGain, and crossfading.", "\uE8D6"),
         new("iso", "Burn ISO Image", "ISO / MDS / BIN / NRG", "Write an existing ISO or disc image directly to optical media with verification.", "\uE958"),
         new("copy", "Copy Disc", "Direct or Image Grab", "Duplicate an optical disc to another disc or save it to your hard drive as an ISO or MDS image.", "\uE8C8"),
-        new("mp4", "DVD to MP4", "Movie only", "Convert the main movie from a DVD-Video ISO or VIDEO_TS folder to a normal MP4 file, skipping menus and adverts.", "\uE8B2"),
+        new("mp4", "DVD to MP4", "Direct single-pass", "Convert a DVD directly from your optical drive (or ISO / VIDEO_TS) to MP4 in one pass with GPU acceleration, skipping menus and adverts.", "\uE8B2"),
         new("erase", "Erase Disc", "Quick / Full Erase", "Erase rewritable CD-RW, DVD±RW, or BD-RE discs quickly or securely.", "\uE75C")
     ];
 

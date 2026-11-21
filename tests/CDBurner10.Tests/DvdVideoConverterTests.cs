@@ -170,4 +170,47 @@ public sealed class DvdVideoConverterTests
         Assert.True(File.Exists(DvdVideoConverter.FfmpegPath));
         Assert.True(File.Exists(DvdVideoConverter.FfprobePath));
     }
+
+    [Theory]
+    [InlineData("E", @"E:\")]
+    [InlineData("e:", @"E:\")]
+    [InlineData(@"E:\", @"E:\")]
+    [InlineData(@"\\.\e:", @"E:\")]
+    public void NormalizeSource_NormalizesOpticalDrivePaths(string input, string expected)
+    {
+        Assert.Equal(expected, DvdVideoConverter.NormalizeSource(input));
+    }
+
+    [Fact]
+    public void BuildFfmpegArguments_SupportsHardwareEncoders()
+    {
+        var info = new DvdVideoInfo(
+            TimeSpan.FromMinutes(90),
+            720,
+            576,
+            [new DvdAudioTrack(1, 0, "ac3", 2, "eng", null)],
+            []);
+        var options = new DvdMp4Options { Crf = 21, Encoder = DvdVideoEncoder.Auto };
+
+        var mfArgs = DvdVideoConverter.BuildFfmpegArguments(@"E:\", @"C:\out.mp4", info, options, "h264_mf");
+        Assert.Equal("h264_mf", mfArgs[mfArgs.IndexOf("-c:v") + 1]);
+        Assert.Equal("quality", mfArgs[mfArgs.IndexOf("-rate_control") + 1]);
+        Assert.Equal("75", mfArgs[mfArgs.IndexOf("-quality") + 1]);
+
+        var nvencArgs = DvdVideoConverter.BuildFfmpegArguments(@"E:\", @"C:\out.mp4", info, options, "h264_nvenc");
+        Assert.Equal("h264_nvenc", nvencArgs[nvencArgs.IndexOf("-c:v") + 1]);
+        Assert.Equal("21", nvencArgs[nvencArgs.IndexOf("-cq") + 1]);
+
+        var swArgs = DvdVideoConverter.BuildFfmpegArguments(@"E:\", @"C:\out.mp4", info, options, "libx264");
+        Assert.Equal("libx264", swArgs[swArgs.IndexOf("-c:v") + 1]);
+        Assert.Equal("21", swArgs[swArgs.IndexOf("-crf") + 1]);
+    }
+
+    [Fact]
+    public void DetectHardwareEncoder_DetectsWorkingGpuEncoderOnHost()
+    {
+        string? encoder = DvdVideoConverter.DetectHardwareEncoder();
+        Assert.NotNull(encoder);
+        Assert.StartsWith("h264_", encoder);
+    }
 }

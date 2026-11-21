@@ -34,6 +34,14 @@ public sealed record DvdVideoInfo(
     IReadOnlyList<DvdAudioTrack> AudioTracks,
     IReadOnlyList<DvdSubtitleTrack> SubtitleTracks);
 
+public enum DvdVideoEncoder
+{
+    /// <summary>Use hardware GPU H.264 encoding (NVENC / QSV / AMF / MediaFoundation) when available, falling back to libx264.</summary>
+    Auto,
+    /// <summary>Always use CPU software encoding (libx264).</summary>
+    Software
+}
+
 public sealed record DvdMp4Options
 {
     /// <summary>DVD title number (0 = auto-select longest title, 1..99 = specific title).</summary>
@@ -51,6 +59,9 @@ public sealed record DvdMp4Options
 
     /// <summary>Deinterlace frames flagged as interlaced (bwdif=0:-1:1); progressive DVDs pass through untouched.</summary>
     public bool Deinterlace { get; init; } = true;
+
+    /// <summary>Hardware GPU acceleration (Auto) or CPU software (Software).</summary>
+    public DvdVideoEncoder Encoder { get; init; } = DvdVideoEncoder.Auto;
 
     /// <summary>Optional limit, mainly useful for previews and tests.</summary>
     public TimeSpan? MaxDuration { get; init; }
@@ -73,6 +84,16 @@ public static class DvdVideoConverter
     private static readonly object LocatorLock = new();
     private static string? _ffmpegPath;
     private static string? _ffprobePath;
+    private static bool _hwEncoderProbed;
+    private static string? _hwEncoder;
+
+    private static readonly string[] HardwareEncoderCandidates =
+    [
+        "h264_nvenc",
+        "h264_qsv",
+        "h264_amf",
+        "h264_mf"
+    ];
 
     public const string InstallHint =
         "ffmpeg was not found. Install it with 'winget install Gyan.FFmpeg' and restart CDBurner10, " +
@@ -89,8 +110,87 @@ public static class DvdVideoConverter
         {
             _ffmpegPath = null;
             _ffprobePath = null;
+            _hwEncoderProbed = false;
+            _hwEncoder = null;
         }
     }
+
+    /// <summary>
+    /// Detects the best working GPU H.264 encoder in ffmpeg (NVENC → QSV → AMF → MediaFoundation).
+    /// Cached after the first probe. Returns null if only CPU libx264 is available.
+    /// </summary>
+    public static string? DetectHardwareEncoder()
+    {
+        lock (LocatorLock)
+        {
+            if (_hwEncoderProbed) return _hwEncoder;
+
+            string? ffmpeg = FindFfmpeg();
+            if (string.IsNullOrWhiteSpace(ffmpeg))
+            {
+                _hwEncoderProbed = true;
+                _hwEncoder = null;
+                return null;
+            }
+
+            foreach (var candidate in HardwareEncoderCandidates)
+            {
+                if (ProbeEncoder(ffmpeg, candidate))
+                {
+                    _hwEncoder = candidate;
+                    break;
+                }
+            }
+
+            _hwEncoderProbed = true;
+            return _hwEncoder;
+        }
+    }
+
+    private static bool ProbeEncoder(string ffmpeg, string encoder)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            foreach (var arg in new[]
+            {
+                "-hide_banner", "-loglevel", "error", "-nostdin",
+                "-f", "lavfi", "-i", "color=c=black:s=128x128:d=0.1:r=25",
+                "-frames:v", "2",
+                "-pix_fmt", "yuv420p",
+                "-c:v", encoder,
+                "-f", "null", "-"
+            })
+            {
+                psi.ArgumentList.Add(arg);
+            }
+
+            using var process = Process.Start(psi);
+            if (process is null) return false;
+            if (!process.WaitForExit(4000))
+            {
+                TryKill(process);
+                return false;
+            }
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static string ResolveVideoEncoder(DvdVideoEncoder preference) =>
+        preference == DvdVideoEncoder.Auto
+            ? DetectHardwareEncoder() ?? "libx264"
+            : "libx264";
 
     public static string? FindFfmpeg()
     {
@@ -198,12 +298,16 @@ public static class DvdVideoConverter
     }
 
     /// <summary>
-    /// VIDEO_TS folders are passed as their parent disc root, while ISO files
-    /// are passed directly to ffmpeg's dvdvideo demuxer.
+    /// Normalizes a DVD source: optical drive letters ("E", "E:", "E:\", "\\.\E:") become "E:\",
+    /// VIDEO_TS folders become their parent disc root, and ISO files are returned as full paths.
     /// </summary>
     public static string NormalizeSource(string path)
     {
-        string full = Path.GetFullPath(path);
+        string trimmedInput = path.Trim();
+        if (TryExtractDriveLetter(trimmedInput, out char driveLetter))
+            return $"{char.ToUpperInvariant(driveLetter)}:\\";
+
+        string full = Path.GetFullPath(trimmedInput);
         if (!Directory.Exists(full)) return full;
 
         string trimmed = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -217,10 +321,67 @@ public static class DvdVideoConverter
         return full;
     }
 
+    public static string GetDriveSourcePath(string driveLetter)
+    {
+        if (TryExtractDriveLetter(driveLetter, out char letter))
+            return $"{char.ToUpperInvariant(letter)}:\\";
+        throw new ArgumentException($"Invalid optical drive letter '{driveLetter}'.", nameof(driveLetter));
+    }
+
+    public static bool TryExtractDriveLetter(string? input, out char letter)
+    {
+        letter = '\0';
+        if (string.IsNullOrWhiteSpace(input)) return false;
+
+        string s = input.Trim();
+        if (s.StartsWith(@"\\.\", StringComparison.Ordinal))
+            s = s[4..];
+
+        if (s.Length == 1 && char.IsAsciiLetter(s[0]))
+        {
+            letter = char.ToUpperInvariant(s[0]);
+            return true;
+        }
+        if (s.Length == 2 && char.IsAsciiLetter(s[0]) && s[1] == ':')
+        {
+            letter = char.ToUpperInvariant(s[0]);
+            return true;
+        }
+        if (s.Length == 3 && char.IsAsciiLetter(s[0]) && s[1] == ':' && (s[2] == '\\' || s[2] == '/'))
+        {
+            letter = char.ToUpperInvariant(s[0]);
+            return true;
+        }
+        return false;
+    }
+
+    public static string GetSuggestedDriveOutputName(string driveLetter)
+    {
+        try
+        {
+            if (TryExtractDriveLetter(driveLetter, out char letter))
+            {
+                var di = new DriveInfo($"{letter}:\\");
+                if (di.IsReady && !string.IsNullOrWhiteSpace(di.VolumeLabel))
+                {
+                    var invalid = Path.GetInvalidFileNameChars();
+                    string clean = new string(di.VolumeLabel.Trim().Where(c => !invalid.Contains(c)).ToArray()).Trim();
+                    if (!string.IsNullOrWhiteSpace(clean))
+                        return clean;
+                }
+            }
+        }
+        catch
+        {
+            // Fall back to default name.
+        }
+        return "DVDMovie";
+    }
+
     public static void ValidateSource(string source)
     {
         if (string.IsNullOrWhiteSpace(source))
-            throw new InvalidOperationException("Select a DVD-Video ISO file or a VIDEO_TS folder.");
+            throw new InvalidOperationException("Select an optical drive, a DVD-Video ISO file, or a VIDEO_TS folder.");
 
         string normalized = NormalizeSource(source);
         if (File.Exists(normalized)) return;
@@ -232,7 +393,7 @@ public static class DvdVideoConverter
                 : normalized;
             if (File.Exists(Path.Combine(videoTs, "VIDEO_TS.IFO")))
                 return;
-            throw new InvalidOperationException("The selected folder does not contain a VIDEO_TS.IFO file.");
+            throw new InvalidOperationException("The selected drive or folder does not contain a DVD-Video VIDEO_TS.IFO file.");
         }
 
         throw new InvalidOperationException($"The source '{source}' was not found.");
@@ -356,7 +517,8 @@ public static class DvdVideoConverter
         string normalizedSource,
         string destination,
         DvdVideoInfo info,
-        DvdMp4Options options)
+        DvdMp4Options options,
+        string? videoEncoderOverride = null)
     {
         var args = new List<string>
         {
@@ -408,13 +570,11 @@ public static class DvdVideoConverter
             args.Add("-an");
         }
 
-        args.AddRange(new[]
-        {
-            "-c:v", "libx264",
-            "-preset", options.Preset,
-            "-crf", options.Crf.ToString(CultureInfo.InvariantCulture),
-            "-pix_fmt", "yuv420p"
-        });
+        string encoder = !string.IsNullOrWhiteSpace(videoEncoderOverride)
+            ? videoEncoderOverride
+            : ResolveVideoEncoder(options.Encoder);
+
+        AppendVideoEncoderArgs(args, encoder, options);
 
         if (selectedAudio is not null)
         {
@@ -436,6 +596,68 @@ public static class DvdVideoConverter
 
         args.Add(destination);
         return args;
+    }
+
+    private static void AppendVideoEncoderArgs(List<string> args, string encoder, DvdMp4Options options)
+    {
+        string crf = Math.Clamp(options.Crf, 0, 51).ToString(CultureInfo.InvariantCulture);
+        switch (encoder)
+        {
+            case "h264_nvenc":
+                args.AddRange(new[]
+                {
+                    "-c:v", "h264_nvenc",
+                    "-preset", "p5",
+                    "-rc", "vbr",
+                    "-cq", crf,
+                    "-b:v", "0",
+                    "-pix_fmt", "yuv420p"
+                });
+                break;
+
+            case "h264_qsv":
+                args.AddRange(new[]
+                {
+                    "-c:v", "h264_qsv",
+                    "-global_quality", crf,
+                    "-pix_fmt", "yuv420p"
+                });
+                break;
+
+            case "h264_amf":
+                args.AddRange(new[]
+                {
+                    "-c:v", "h264_amf",
+                    "-rc", "cqp",
+                    "-qp_i", crf,
+                    "-qp_p", crf,
+                    "-pix_fmt", "yuv420p"
+                });
+                break;
+
+            case "h264_mf":
+            {
+                int quality = options.Crf <= 19 ? 85 : options.Crf <= 22 ? 75 : 65;
+                args.AddRange(new[]
+                {
+                    "-c:v", "h264_mf",
+                    "-rate_control", "quality",
+                    "-quality", quality.ToString(CultureInfo.InvariantCulture),
+                    "-pix_fmt", "yuv420p"
+                });
+                break;
+            }
+
+            default:
+                args.AddRange(new[]
+                {
+                    "-c:v", "libx264",
+                    "-preset", options.Preset,
+                    "-crf", crf,
+                    "-pix_fmt", "yuv420p"
+                });
+                break;
+        }
     }
 
     public static async Task ConvertAsync(
