@@ -15,6 +15,12 @@ public sealed class GrabOptions
     public int NumberOfReadRetries { get; init; } = 3;
     public bool FastReadToc { get; init; } = false;
     public bool IsDvdVideo { get; init; } = false;
+
+    /// <summary>
+    /// When the source is a CSS-protected DVD, read it through libdvdcss and
+    /// write a decrypted ISO instead of copying scrambled sectors.
+    /// </summary>
+    public bool DecryptCss { get; init; } = true;
 }
 
 public sealed class DiscGrabber
@@ -37,7 +43,36 @@ public sealed class DiscGrabber
             var dir = Path.GetDirectoryName(options.TargetPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
+            var disc = options.DecryptCss
+                ? GetDiscProtection(options.Drive)
+                : (Protection: STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_NONE, UsedBytes: 0L);
+
+            if (disc.Protection == STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_CSS)
+            {
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Grabbing,
+                    0,
+                    Message: "CSS copy protection detected - decrypting with libdvdcss..."));
+
+                try
+                {
+                    DvdCssReader.GrabToIso(options.Drive, options.TargetPath, disc.UsedBytes, progress, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    progress?.Report(new BurnProgress(BurnPhase.Cancelled, 0, Message: "Grab cancelled."));
+                    return;
+                }
+
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Completed,
+                    100,
+                    Message: "Disc image saved successfully (CSS decrypted with libdvdcss)."));
+                return;
+            }
+
             var grabber = CreateConfiguredGrabber(options);
+            grabber.CDRawReadMode = STARBURN_DISC_READ_MODE_RAW.STARBURN_READ_MODE_COOKED;
             grabber.OnProgress += (pct, rem) =>
                 progress?.Report(new BurnProgress(BurnPhase.Grabbing, pct, TimeRemaining: TimeSpan.FromSeconds(rem), Message: $"Reading disc... {pct}%"));
 
@@ -161,6 +196,22 @@ public sealed class DiscGrabber
         {
             try { _grabber?.Cancel(); } catch { }
         });
+    }
+
+    private static (STARBURN_DISC_PROTECTION_SYSTEM Protection, long UsedBytes) GetDiscProtection(DriveModel drive)
+    {
+        try
+        {
+            var disc = drive.RawDrive.DiscInfo;
+            disc.Refresh();
+            long usedBytes = (long)disc.UsedSize * 1024L;
+            if (usedBytes <= 0) usedBytes = (long)disc.TotalSize * 1024L;
+            return (disc.ProtectionSystem, usedBytes);
+        }
+        catch (COMException)
+        {
+            return (STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_NONE, 0);
+        }
     }
 
     private static GrabberClass CreateConfiguredGrabber(GrabOptions options)

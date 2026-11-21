@@ -15,6 +15,7 @@ public sealed partial class CopyDiscPage : Page
     private readonly ImageBurner _imageBurner = new();
     private CancellationTokenSource? _cts;
     private bool _isBusy;
+    private DiscInfoModel _sourceDiscInfo = DiscInfoModel.Empty;
 
     public CopyDiscPage()
     {
@@ -87,20 +88,30 @@ public sealed partial class CopyDiscPage : Page
 
         if (drive is null)
         {
+            _sourceDiscInfo = DiscInfoModel.Empty;
             SourceDiscStatusText.Text = "No optical drive selected.";
             return;
         }
 
         SourceDiscStatusText.Text = "Checking inserted disc...";
         var info = await drive.RefreshDiscInfoAsync();
+        _sourceDiscInfo = info;
         if (!info.HasDisc)
         {
             SourceDiscStatusText.Text = "No disc inserted in source drive.";
+            DvdVideoGrabCheckBox.IsEnabled = true;
         }
         else
         {
             int trackCount = info.Sessions.Sum(s => s.Tracks.Count);
-            SourceDiscStatusText.Text = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used • {info.Sessions.Count} session(s), {trackCount} track(s)";
+            string protection = info.IsCssProtected
+                ? " • CSS protected (decrypted with libdvdcss)"
+                : string.Empty;
+            SourceDiscStatusText.Text = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used • {info.Sessions.Count} session(s), {trackCount} track(s){protection}";
+
+            // CSS discs are always read through libdvdcss into a decrypted ISO.
+            DvdVideoGrabCheckBox.IsEnabled = !info.IsCssProtected;
+            if (info.IsCssProtected) DvdVideoGrabCheckBox.IsChecked = false;
         }
     }
 
@@ -147,6 +158,14 @@ public sealed partial class CopyDiscPage : Page
             return;
         }
 
+        bool cssProtected = _sourceDiscInfo.IsCssProtected;
+        if (cssProtected && !DvdCssReader.IsAvailable)
+        {
+            ShowStatus(InfoBarSeverity.Error, "libdvdcss Missing",
+                $"CSS-protected DVD detected, but '{DvdCssReader.DllName}' was not found next to the application.");
+            return;
+        }
+
         bool toHardDisc = TargetModeRadio.SelectedIndex == 1;
         DriveModel? targetDrive = null;
         string targetPath = string.Empty;
@@ -156,8 +175,14 @@ public sealed partial class CopyDiscPage : Page
             targetPath = TargetImagePathBox.Text?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(targetPath))
             {
-                ShowStatus(InfoBarSeverity.Warning, "Output Path Required", "Choose a destination .iso or .mds file path.");
+                ShowStatus(InfoBarSeverity.Warning, "Output Path Required", "Choose a destination .iso file path (or .mds for non-CSS discs).");
                 return;
+            }
+
+            if (cssProtected && !Path.GetExtension(targetPath).Equals(".iso", StringComparison.OrdinalIgnoreCase))
+            {
+                targetPath = Path.ChangeExtension(targetPath, ".iso");
+                TargetImagePathBox.Text = targetPath;
             }
         }
         else
@@ -212,6 +237,10 @@ public sealed partial class CopyDiscPage : Page
         try
         {
             int readSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
+            if (cssProtected)
+            {
+                AppendLog("CSS copy protection detected. Decrypting the disc with libdvdcss...");
+            }
 
             if (toHardDisc)
             {
@@ -224,7 +253,8 @@ public sealed partial class CopyDiscPage : Page
                     IgnoreBadBlocks = IgnoreBadBlocksCheckBox.IsChecked == true,
                     DisableHardwareErrorCorrection = DisableHwEcCheckBox.IsChecked == true,
                     NumberOfReadRetries = Math.Max(0, (int)ReadRetriesBox.Value),
-                    IsDvdVideo = DvdVideoGrabCheckBox.IsChecked == true
+                    IsDvdVideo = DvdVideoGrabCheckBox.IsChecked == true,
+                    DecryptCss = true
                 };
                 await _grabber.GrabDiscAsync(grabOpts, progress, _cts.Token);
                 AppendLog("Disc image created successfully.");
@@ -241,7 +271,9 @@ public sealed partial class CopyDiscPage : Page
                     ReadSpeedKBps = readSpeed,
                     IgnoreBadBlocks = IgnoreBadBlocksCheckBox.IsChecked == true,
                     DisableHardwareErrorCorrection = DisableHwEcCheckBox.IsChecked == true,
-                    NumberOfReadRetries = Math.Max(0, (int)ReadRetriesBox.Value)
+                    NumberOfReadRetries = Math.Max(0, (int)ReadRetriesBox.Value),
+                    IsDvdVideo = false,
+                    DecryptCss = true
                 };
                 await _grabber.GrabDiscAsync(grabOpts, progress, _cts.Token);
 

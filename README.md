@@ -6,6 +6,7 @@ Modernization of **CDBurnerXP 4.5.8** to **.NET 10** and **WinUI 3 (Windows App 
 
 - **`src/CDBurner10.Core`** — UI-independent `.NET 10` (`win-x86`) core library:
   - Optical burning via **StarBurnX 15.7** (`StarBurn.dll` / `StarBurnX15.dll`) using Registration-Free COM (`Native.CsLib.manifest`).
+  - CSS-protected DVD-Video support via the bundled FOSS **libdvdcss** (`native/libdvdcss-2-32bit.dll`); Copy/Grab writes a decrypted, playable ISO.
   - Audio playback, CDDA ripping, ReplayGain, crossfading, and CUE/M3U/WPL/NRA support via **BASS 2.4** (`ManagedBass` + native `bass*.dll` plugins).
   - Pure-managed `BIN` / `NRG` / `B5I` → `ISO` converters, `.dxp` / `.axp` project compatibility, disc spanning, cover printing, and JSON settings (with portable mode & legacy `UserSettings.ini` import).
 - **`src/CDBurner10.Cli`** (`cdbxpcmd.exe`) — Full CLI parity (`--list-drives`, `--eject`, `--load`, `--wait-for-disc`, `--erase`, `--burn-data`, `--burn-audio`, `--burn-video`, `--burn-iso`, `-sptd`).

@@ -128,6 +128,11 @@
                                 Click="BrowseTargetImageButton_Click" />
                         </Grid>
                         <CheckBox x:Name="DvdVideoGrabCheckBox" Content="Grab as DVD-Video disc image" />
+                        <TextBlock
+                            Text="CSS-protected DVD-Video discs are decrypted automatically with the bundled FOSS libdvdcss library and saved as a playable ISO."
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            TextWrapping="Wrap" />
                     </StackPanel>
                 </StackPanel>
             </Border>

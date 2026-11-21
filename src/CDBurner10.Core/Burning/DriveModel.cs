@@ -42,6 +42,15 @@ public sealed record DiscInfoModel(
     int DvdRegionMask,
     IReadOnlyList<SessionModel> Sessions)
 {
+    /// <summary>
+    /// Copy protection reported by the drive. StarBurn decrypts CSS-protected
+    /// DVD-Video content itself while grabbing, so no external library is needed.
+    /// </summary>
+    public STARBURN_DISC_PROTECTION_SYSTEM ProtectionSystem { get; init; }
+
+    public bool IsCssProtected =>
+        ProtectionSystem == STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_CSS;
+
     public IReadOnlyDictionary<string, bool> RegionInfo => BurningEngine.GetRegionInfo(DvdRegionMask);
 
     public static DiscInfoModel Empty => new(
@@ -51,7 +60,10 @@ public sealed record DiscInfoModel(
         0, 0, 0,
         false, false, false, false, false,
         0,
-        Array.Empty<SessionModel>());
+        Array.Empty<SessionModel>())
+    {
+        ProtectionSystem = STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_NONE
+    };
 
     public static DiscInfoModel FromStarBurn(DiscInfo discInfo)
     {
@@ -98,6 +110,16 @@ public sealed record DiscInfoModel(
             bool isBlank = discInfo.Status == STARBURN_DISC_STATUS.STARBURN_DISC_STATUS_EMPTY;
             bool nextSessionAllowed = discInfo.Status != STARBURN_DISC_STATUS.STARBURN_DISC_STATUS_COMPLETE;
 
+            var protection = STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_NONE;
+            try
+            {
+                protection = discInfo.ProtectionSystem;
+            }
+            catch (COMException)
+            {
+                // Some drives/media do not report a protection system.
+            }
+
             return new DiscInfoModel(
                 discType,
                 BurningEngine.GetDiscDescription(discType),
@@ -111,7 +133,10 @@ public sealed record DiscInfoModel(
                 nextSessionAllowed,
                 hasDisc,
                 discInfo.DVDRegionMask,
-                sessions);
+                sessions)
+            {
+                ProtectionSystem = protection
+            };
         }
         catch (COMException)
         {
