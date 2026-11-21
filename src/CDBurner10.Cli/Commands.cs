@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using CDBurner10.Core.Audio;
 using CDBurner10.Core.Burning;
+using CDBurner10.Core.Dvd;
 using CDBurner10.Core.Utilities;
 
 namespace CDBurner10.Cli;
@@ -353,6 +354,83 @@ internal static class Commands
         Console.WriteLine("Starting to write disc using folder \"{0}\"", videoDir);
         burner.BurnAsync(burnOptions, progress).GetAwaiter().GetResult();
         Console.WriteLine("Burning video disc completed.");
+    }
+
+    public static int DvdToMp4(CommandLineOptions options)
+    {
+        if (!DvdVideoConverter.IsAvailable)
+        {
+            Console.WriteLine(DvdVideoConverter.InstallHint);
+            return -1;
+        }
+
+        string? source = options.FilesAndFolders.FirstOrDefault().SourcePath;
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            Console.WriteLine("Specify a source DVD ISO or VIDEO_TS folder with -file:<path> or -folder:<path>.");
+            return -1;
+        }
+
+        string destination = options.Arguments.TryGetValue("-out", out var outArg) && !string.IsNullOrWhiteSpace(outArg)
+            ? outArg.Trim()
+            : Path.ChangeExtension(Path.GetFullPath(source), ".mp4");
+
+        int titleNumber = options.Arguments.TryGetValue("-title", out var titleArg) && int.TryParse(titleArg, out var t)
+            ? Math.Clamp(t, 0, 99)
+            : 0;
+        int audioOrdinal = options.Arguments.TryGetValue("-audio", out var audioArg) && int.TryParse(audioArg, out var a)
+            ? Math.Max(0, a)
+            : 0;
+        int? subtitleOrdinal = options.Arguments.TryGetValue("-sub", out var subArg) && int.TryParse(subArg, out var s)
+            ? Math.Max(0, s)
+            : null;
+        int crf = options.Arguments.TryGetValue("-crf", out var crfArg) && int.TryParse(crfArg, out var c)
+            ? Math.Clamp(c, 0, 51)
+            : 21;
+        string preset = options.Arguments.TryGetValue("-preset", out var presetArg) && !string.IsNullOrWhiteSpace(presetArg)
+            ? presetArg.Trim()
+            : "medium";
+        bool stereoDownmix = !options.Flags.Contains("-no-downmix");
+        bool deinterlace = !options.Flags.Contains("-no-deinterlace");
+
+        try
+        {
+            Console.WriteLine("Probing DVD-Video source \"{0}\"...", source);
+            var info = DvdVideoConverter.ProbeAsync(source, titleNumber).GetAwaiter().GetResult();
+            Console.WriteLine("Detected title: {0:hh\\:mm\\:ss}, {1}x{2}, {3} audio, {4} subtitle track(s).",
+                info.Duration, info.Width, info.Height, info.AudioTracks.Count, info.SubtitleTracks.Count);
+
+            var mp4Options = new DvdMp4Options
+            {
+                TitleNumber = titleNumber,
+                AudioOrdinal = audioOrdinal,
+                SubtitleOrdinal = subtitleOrdinal,
+                Crf = crf,
+                Preset = preset,
+                StereoDownmix = stereoDownmix,
+                Deinterlace = deinterlace
+            };
+
+            int lastPercent = -1;
+            var progress = new Progress<DvdMp4Progress>(p =>
+            {
+                if (p.Percent != lastPercent)
+                {
+                    lastPercent = p.Percent;
+                    Console.WriteLine("{0}% ({1:0.0}x, {2:0} fps)", p.Percent, p.Speed, p.Fps);
+                }
+            });
+
+            Console.WriteLine("Converting to \"{0}\"...", destination);
+            DvdVideoConverter.ConvertAsync(source, destination, info, mp4Options, progress).GetAwaiter().GetResult();
+            Console.WriteLine("DVD to MP4 conversion completed.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("DVD to MP4 conversion failed: " + ex.Message);
+            return -1;
+        }
     }
 
     private static int ResolveSpeedKBps(DriveModel drive, CommandLineOptions options)

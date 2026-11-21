@@ -12,7 +12,8 @@ internal enum CliCommand
     BurnAudio,
     BurnVideo,
     BurnIso,
-    WaitForDisc
+    WaitForDisc,
+    DvdToMp4
 }
 
 internal readonly record struct FileFolderArgument(string SourcePath, string TargetPath)

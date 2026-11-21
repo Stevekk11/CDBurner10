@@ -183,6 +183,11 @@
                     Content="Cancel"
                     IsEnabled="False"
                     Click="CancelButton_Click" />
+                <Button
+                    x:Name="ConvertToMp4Button"
+                    Content="Convert to MP4..."
+                    Visibility="Collapsed"
+                    Click="ConvertToMp4Button_Click" />
             </StackPanel>
 
             <!-- Progress & Log -->

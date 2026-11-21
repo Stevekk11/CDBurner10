@@ -16,6 +16,7 @@ public sealed partial class CopyDiscPage : Page
     private CancellationTokenSource? _cts;
     private bool _isBusy;
     private DiscInfoModel _sourceDiscInfo = DiscInfoModel.Empty;
+    private string? _lastGrabbedIso;
 
     public CopyDiscPage()
     {
@@ -206,6 +207,8 @@ public sealed partial class CopyDiscPage : Page
 
         _isBusy = true;
         SetBusyUi(true);
+        _lastGrabbedIso = null;
+        ConvertToMp4Button.Visibility = Visibility.Collapsed;
         ProgressCard.Visibility = Visibility.Visible;
         CopyProgressBar.Value = 0;
 
@@ -258,6 +261,11 @@ public sealed partial class CopyDiscPage : Page
                 };
                 await _grabber.GrabDiscAsync(grabOpts, progress, _cts.Token);
                 AppendLog("Disc image created successfully.");
+                if (targetPath.EndsWith(".iso", StringComparison.OrdinalIgnoreCase) && File.Exists(targetPath))
+                {
+                    _lastGrabbedIso = targetPath;
+                    ConvertToMp4Button.Visibility = Visibility.Visible;
+                }
                 ShowStatus(InfoBarSeverity.Success, "Grab Completed", $"Saved disc image to '{Path.GetFileName(targetPath)}'.");
             }
             else
@@ -327,6 +335,12 @@ public sealed partial class CopyDiscPage : Page
             _isBusy = false;
             SetBusyUi(false);
         }
+    }
+
+    private void ConvertToMp4Button_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(_lastGrabbedIso) && File.Exists(_lastGrabbedIso))
+            AppServices.Current.NavigateTo("mp4", _lastGrabbedIso);
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)

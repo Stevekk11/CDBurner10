@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
         ["copy"] = typeof(CopyDiscPage),
         ["erase"] = typeof(EraseDiscPage),
         ["convert"] = typeof(ConvertIsoPage),
+        ["mp4"] = typeof(DvdToMp4Page),
         ["info"] = typeof(DriveDiscInfoPage),
         ["cover"] = typeof(CoverPrintPage),
         ["settings"] = typeof(SettingsPage)
@@ -104,6 +105,9 @@ public sealed partial class MainWindow : Window
                     return;
                 case "/oc":
                     NavigateTo("copy");
+                    return;
+                case "/omp4":
+                    NavigateTo("mp4", second);
                     return;
                 case "/oe":
                     NavigateTo("erase");

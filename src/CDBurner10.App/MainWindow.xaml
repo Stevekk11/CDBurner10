@@ -98,6 +98,11 @@
                         <FontIcon Glyph="&#xE8AB;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="DVD to MP4" Tag="mp4">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8B2;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Disc &amp; Drive Info" Tag="info">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE946;" />

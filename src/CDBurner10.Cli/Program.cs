@@ -27,6 +27,11 @@ internal static class Program
             return 0;
         }
 
+        if (options.Command == CliCommand.DvdToMp4)
+        {
+            return Commands.DvdToMp4(options);
+        }
+
         if (options.Flags.Contains("-sptd"))
         {
             if (!BurningEngine.CheckSptdDriver())
