@@ -1,0 +1,137 @@
+<ContentDialog
+    x:Class="CDBurner10.App.Views.Dialogs.BurnDataDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Burn Data Disc"
+    PrimaryButtonText="Burn Disc"
+    CloseButtonText="Close"
+    DefaultButton="Primary"
+    PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
+    Closing="ContentDialog_Closing">
+    <ScrollViewer MaxHeight="560" MinWidth="500">
+        <StackPanel Spacing="14" Padding="0,4,12,4">
+            <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="False" />
+
+            <!-- Phase 1: Burn Options -->
+            <StackPanel x:Name="OptionsPanel" Spacing="12">
+                <TextBlock
+                    x:Name="CompilationSummaryText"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                <ComboBox
+                    x:Name="DriveComboBox"
+                    HorizontalAlignment="Stretch"
+                    Header="Target Optical Drive"
+                    PlaceholderText="No optical drive detected"
+                    SelectionChanged="DriveComboBox_SelectionChanged" />
+
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="120" />
+                        <ColumnDefinition Width="100" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox
+                        x:Name="SpeedComboBox"
+                        Grid.Column="0"
+                        HorizontalAlignment="Stretch"
+                        Header="Write Speed" />
+                    <NumberBox
+                        x:Name="CustomSpeedBox"
+                        Grid.Column="1"
+                        Header="Custom (KB/s)"
+                        PlaceholderText="Auto"
+                        Minimum="0"
+                        Maximum="100000"
+                        Value="0"
+                        SpinButtonPlacementMode="Compact" />
+                    <NumberBox
+                        x:Name="CopiesBox"
+                        Grid.Column="2"
+                        Header="Copies"
+                        Value="1"
+                        Minimum="1"
+                        Maximum="99"
+                        SpinButtonPlacementMode="Compact" />
+                </Grid>
+
+                <RadioButtons x:Name="FinalizeRadio" Header="Session Mode" MaxColumns="2" SelectedIndex="0">
+                    <RadioButton Content="Leave disc open (multi-session)" />
+                    <RadioButton Content="Finalize disc (prevent further changes)" />
+                </RadioButtons>
+
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Spacing="4">
+                        <CheckBox x:Name="VerifyCheckBox" Content="Verify data after burning" />
+                        <CheckBox x:Name="SimulateCheckBox" Content="Simulate burning (test write)" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <CheckBox x:Name="EjectCheckBox" Content="Eject disc after burning" IsChecked="True" />
+                        <CheckBox x:Name="ShutdownCheckBox" Content="Shut down PC after completion" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Inline Shortcuts for Disc Labels & Boot Status -->
+                <Expander Header="Disc Labels &amp; Boot Summary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="8">
+                        <TextBox x:Name="VolumeLabelBox" Header="Volume Label" />
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="PublisherBox" Grid.Column="0" Header="Publisher" />
+                            <TextBox x:Name="AppNameBox" Grid.Column="1" Header="Application ID" />
+                        </Grid>
+                        <TextBlock
+                            x:Name="BootStatusText"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Expander>
+            </StackPanel>
+
+            <!-- Phase 2: Live Progress & Log -->
+            <StackPanel x:Name="ProgressPanel" Spacing="10" Visibility="Collapsed">
+                <Grid>
+                    <TextBlock x:Name="PhaseText" Text="Preparing..." Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock
+                        x:Name="TimeText"
+                        HorizontalAlignment="Right"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+
+                <StackPanel Spacing="4">
+                    <TextBlock x:Name="WritePercentText" Text="Write Progress: 0%" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <ProgressBar x:Name="WriteProgressBar" Minimum="0" Maximum="100" Value="0" />
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock x:Name="BufferPercentText" Text="Device Buffer: 0%" Style="{StaticResource CaptionTextBlockStyle}" />
+                    <ProgressBar x:Name="BufferProgressBar" Minimum="0" Maximum="100" Value="0" />
+                </StackPanel>
+
+                <TextBox
+                    x:Name="EventLogBox"
+                    Header="Event Log"
+                    IsReadOnly="True"
+                    AcceptsReturn="True"
+                    TextWrapping="Wrap"
+                    Height="150"
+                    ScrollViewer.VerticalScrollBarVisibility="Auto" />
+
+                <Button
+                    x:Name="CancelBurnButton"
+                    Content="Cancel Burn"
+                    HorizontalAlignment="Right"
+                    Click="CancelBurnButton_Click" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

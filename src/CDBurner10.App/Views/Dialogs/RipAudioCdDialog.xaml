@@ -1,0 +1,56 @@
+<ContentDialog
+    x:Class="CDBurner10.App.Views.Dialogs.RipAudioCdDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:dialogs="using:CDBurner10.App.Views.Dialogs"
+    Title="Rip Audio CD Tracks"
+    PrimaryButtonText="Rip Selected Tracks"
+    CloseButtonText="Close"
+    DefaultButton="Primary"
+    PrimaryButtonClick="ContentDialog_PrimaryButtonClick">
+    <StackPanel Spacing="12" MinWidth="480">
+        <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="False" />
+
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ComboBox
+                x:Name="DriveComboBox"
+                Grid.Column="0"
+                HorizontalAlignment="Stretch"
+                Header="Audio CD Drive"
+                PlaceholderText="No optical drive detected"
+                SelectionChanged="DriveComboBox_SelectionChanged" />
+            <Button
+                Grid.Column="1"
+                Content="Refresh"
+                VerticalAlignment="Bottom"
+                Click="RefreshButton_Click" />
+        </Grid>
+
+        <ListView
+            x:Name="AudioTracksListView"
+            SelectionMode="Multiple"
+            MaxHeight="220">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="dialogs:AudioCdTrackRow">
+                    <Grid Padding="4,4" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="80" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{x:Bind TrackLabel}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock Grid.Column="1" Text="{x:Bind SizeLabel}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Grid.Column="2" Text="{x:Bind DurationLabel}" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <ProgressBar x:Name="RipProgressBar" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" />
+        <TextBlock x:Name="RipStatusText" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+    </StackPanel>
+</ContentDialog>

@@ -1,0 +1,110 @@
+<UserControl
+    x:Class="CDBurner10.App.Controls.DiscCapacityBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border
+        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+        BorderThickness="1"
+        CornerRadius="8"
+        Padding="12,8">
+        <Grid ColumnSpacing="12" RowSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Preset selector -->
+            <ComboBox
+                x:Name="PresetComboBox"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Grid.Column="0"
+                MinWidth="170"
+                VerticalAlignment="Center"
+                SelectionChanged="PresetComboBox_SelectionChanged" />
+
+            <!-- Progress bar + labels -->
+            <Grid Grid.Row="0" Grid.Column="1" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    x:Name="UsageSummaryText"
+                    Grid.Column="0"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    FontWeight="SemiBold"
+                    VerticalAlignment="Center"
+                    Text="0 B used of 700 MB" />
+                <TextBlock
+                    x:Name="RemainingText"
+                    Grid.Column="1"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    VerticalAlignment="Center"
+                    Text="700 MB free (0%)" />
+            </Grid>
+
+            <!-- Segmented visual capacity bar -->
+            <Grid
+                x:Name="BarTrack"
+                Grid.Row="1"
+                Grid.Column="1"
+                Height="10"
+                CornerRadius="5"
+                Background="{ThemeResource ControlStrongFillColorDisabledBrush}"
+                SizeChanged="BarTrack_SizeChanged">
+                <Border
+                    x:Name="BarFill"
+                    HorizontalAlignment="Left"
+                    Width="0"
+                    CornerRadius="5"
+                    Background="{ThemeResource AccentFillColorDefaultBrush}" />
+                <!-- 90% warning marker -->
+                <Rectangle
+                    x:Name="WarningMarker"
+                    Width="1"
+                    HorizontalAlignment="Left"
+                    Fill="{ThemeResource TextFillColorTertiaryBrush}"
+                    Opacity="0.45" />
+            </Grid>
+
+            <!-- Status pill / custom button -->
+            <StackPanel
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Grid.Column="2"
+                Orientation="Horizontal"
+                Spacing="6"
+                VerticalAlignment="Center">
+                <Border
+                    x:Name="OverburnBadge"
+                    Visibility="Collapsed"
+                    Background="#33DC2626"
+                    BorderBrush="#DC2626"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="6,2">
+                    <TextBlock
+                        Text="OVERBURN"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        Foreground="#DC2626" />
+                </Border>
+                <Button
+                    x:Name="CustomSizeButton"
+                    ToolTipService.ToolTip="Set custom disc capacity"
+                    Padding="8,4"
+                    Click="CustomSizeButton_Click">
+                    <FontIcon Glyph="&#xE70F;" FontSize="12" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

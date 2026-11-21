@@ -1,0 +1,236 @@
+<Page
+    x:Class="CDBurner10.App.Views.DriveDiscInfoPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:CDBurner10.App.Views">
+    <ScrollViewer Padding="28,20">
+        <StackPanel MaxWidth="1020" Spacing="16">
+            <!-- Header + Drive Picker -->
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock Text="Disc &amp; Drive Information" Style="{StaticResource TitleTextBlockStyle}" />
+                    <TextBlock
+                        Text="Inspect inserted optical media sessions/tracks and hardware drive capabilities."
+                        Style="{StaticResource BodyTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <ComboBox
+                        x:Name="DriveComboBox"
+                        MinWidth="260"
+                        PlaceholderText="No optical drive detected"
+                        SelectionChanged="DriveComboBox_SelectionChanged" />
+                    <Button Content="Refresh" Click="RefreshButton_Click" />
+                    <Button Content="Copy Info" Click="CopyInfoButton_Click" />
+                </StackPanel>
+            </Grid>
+
+            <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="True" />
+
+            <!-- Section Tabs -->
+            <Pivot x:Name="InfoPivot">
+                <!-- Disc Info Tab -->
+                <PivotItem Header="Disc Information">
+                    <StackPanel Spacing="16" Margin="0,12,0,0">
+                        <!-- Summary Card -->
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="Inserted Media" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                                <Grid ColumnSpacing="24" RowSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="Media Type" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DiscMediaTypeText" Text="No Disc" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Volume Label" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DiscLabelText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Spacing="2">
+                                        <TextBlock Text="Status" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DiscStatusText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Spacing="2">
+                                        <TextBlock Text="Erasable" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DiscErasableText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Capacity Bar -->
+                                <StackPanel Spacing="6">
+                                    <Grid>
+                                        <TextBlock x:Name="CapacitySummaryText" Text="Capacity: 0 B" Style="{StaticResource CaptionTextBlockStyle}" />
+                                        <TextBlock
+                                            x:Name="CapacityFreeText"
+                                            Text="Free: 0 B"
+                                            HorizontalAlignment="Right"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Grid>
+                                    <ProgressBar x:Name="CapacityProgressBar" Minimum="0" Maximum="100" Value="0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Sessions & Tracks Card -->
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Sessions &amp; Tracks" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <TextBlock
+                                    x:Name="NoTracksText"
+                                    Text="No recorded sessions or tracks on disc."
+                                    Style="{StaticResource BodyTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <ListView x:Name="TracksListView" SelectionMode="None" MaxHeight="300">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="views:DiscTrackRow">
+                                            <Grid Padding="4,6" ColumnSpacing="16">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="90" />
+                                                    <ColumnDefinition Width="90" />
+                                                    <ColumnDefinition Width="120" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{x:Bind SessionText}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                                <TextBlock Grid.Column="1" Text="{x:Bind TrackText}" />
+                                                <TextBlock Grid.Column="2" Text="{x:Bind TypeText}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                <TextBlock Grid.Column="3" Text="{x:Bind SizeText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </PivotItem>
+
+                <!-- Drive Info Tab -->
+                <PivotItem Header="Drive Capabilities">
+                    <StackPanel Spacing="16" Margin="0,12,0,0">
+                        <!-- Hardware Properties -->
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Hardware Profile" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <Grid ColumnSpacing="24" RowSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="Vendor" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DriveVendorText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Product / Model" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DriveProductText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="0" Grid.Column="2" Spacing="2">
+                                        <TextBlock Text="Firmware / Drive Letter" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DriveFirmwareText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="Max Read Speed" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DriveMaxReadText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Max Write Speed" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DriveMaxWriteText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Grid.Column="2" Spacing="2">
+                                        <TextBlock Text="Features" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock x:Name="DriveFeaturesText" Text="—" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Supported Media Matrix -->
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Supported Media Matrix" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <Grid Padding="8,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Media Format" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Grid.Column="1" Text="Read Support" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Grid.Column="2" Text="Write Support" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                </Grid>
+                                <ListView x:Name="MediaMatrixListView" SelectionMode="None" MaxHeight="280">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="views:MediaCapabilityRow">
+                                            <Grid Padding="4,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2*" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{x:Bind FormatName}" />
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ReadText}" />
+                                                <TextBlock Grid.Column="2" Text="{x:Bind WriteText}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Region Info -->
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="DVD Region Information" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <TextBlock
+                                    x:Name="RegionInfoText"
+                                    Text="Insert a DVD to inspect region codes."
+                                    TextWrapping="Wrap"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </PivotItem>
+            </Pivot>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

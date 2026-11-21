@@ -1,0 +1,70 @@
+<ContentDialog
+    x:Class="CDBurner10.App.Views.Dialogs.FileSystemDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="File System Settings"
+    PrimaryButtonText="Apply"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="ContentDialog_PrimaryButtonClick">
+    <StackPanel Spacing="14" MinWidth="440">
+        <InfoBar x:Name="ErrorInfoBar" IsOpen="False" IsClosable="False" Severity="Error" />
+
+        <RadioButtons
+            x:Name="FileSystemRadio"
+            Header="Disc File System"
+            SelectedIndex="0"
+            SelectionChanged="FileSystemRadio_SelectionChanged">
+            <RadioButton Content="ISO9660 / Joliet (Best compatibility with legacy OS &amp; players)" />
+            <RadioButton Content="UDF — Universal Disk Format (Required for files &gt; 4 GB &amp; Blu-ray)" />
+        </RadioButtons>
+
+        <ComboBox
+            x:Name="UdfVersionComboBox"
+            Header="UDF Revision"
+            HorizontalAlignment="Stretch"
+            IsEnabled="False"
+            SelectionChanged="UdfVersionComboBox_SelectionChanged">
+            <ComboBoxItem Content="UDF 1.02 (DVD-Video / widest compatibility)" Tag="V1_02" />
+            <ComboBoxItem Content="UDF 1.50 (Packet writing / CD-RW)" Tag="V1_50" />
+            <ComboBoxItem Content="UDF 2.00 (Windows XP+)" Tag="V2_00" />
+            <ComboBoxItem Content="UDF 2.01 (Recommended for DVD/Data)" Tag="V2_01" />
+            <ComboBoxItem Content="UDF 2.50 (Blu-ray / Windows Vista+)" Tag="V2_50" />
+            <ComboBoxItem Content="UDF 2.60 (Blu-ray BD-R Pseudo Overwrite)" Tag="V2_60" />
+        </ComboBox>
+
+        <!-- Restrictions Info Table -->
+        <Border
+            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+            CornerRadius="6"
+            Padding="14,10">
+            <StackPanel Spacing="6">
+                <TextBlock Text="File System Restrictions" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <Grid RowSpacing="4" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Max File Size:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="MaxFileSizeText" Grid.Row="0" Grid.Column="1" Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Max File Name Length:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="MaxFileNameText" Grid.Row="1" Grid.Column="1" Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Max Volume Label:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="MaxLabelText" Grid.Row="2" Grid.Column="1" Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="OS Compatibility:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="CompatibilityText" Grid.Row="3" Grid.Column="1" TextWrapping="Wrap" />
+                </Grid>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</ContentDialog>

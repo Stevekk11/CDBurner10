@@ -1,0 +1,199 @@
+<Page
+    x:Class="CDBurner10.App.Views.BurnIsoPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Padding="28,20">
+        <StackPanel MaxWidth="980" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Burn ISO Image" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Write an ISO or MDS disc image directly to CD, DVD, or Blu-ray media."
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <InfoBar
+                x:Name="StatusInfoBar"
+                IsOpen="False"
+                IsClosable="True" />
+
+            <!-- Image File Card -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20">
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <TextBlock Text="Disc Image File" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <HyperlinkButton
+                            x:Name="ConvertToIsoLink"
+                            Content="Convert BIN / NRG / B5I to ISO..."
+                            HorizontalAlignment="Right"
+                            Click="ConvertToIsoLink_Click" />
+                    </Grid>
+
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="IsoPathBox"
+                            Grid.Column="0"
+                            Header="Image Path (.iso, .mds, .bin, .nrg)"
+                            PlaceholderText="Select an ISO or MDS image file..."
+                            TextChanged="IsoPathBox_TextChanged" />
+                        <Button
+                            x:Name="BrowseIsoButton"
+                            Grid.Column="1"
+                            Content="Browse..."
+                            VerticalAlignment="Bottom"
+                            Click="BrowseIsoButton_Click" />
+                    </Grid>
+
+                    <TextBlock
+                        x:Name="ImageSizeText"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Visibility="Collapsed" />
+
+                    <InfoBar
+                        x:Name="ConvertHintBar"
+                        IsOpen="False"
+                        IsClosable="False"
+                        Severity="Warning"
+                        Title="Conversion Recommended"
+                        Message="BIN, NRG, and B5I images should be converted to standard ISO format before burning.">
+                        <InfoBar.ActionButton>
+                            <Button Content="Convert Now" Click="ConvertToIsoLink_Click" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                </StackPanel>
+            </Border>
+
+            <!-- Drive & Burn Options Card -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Target Drive &amp; Write Settings" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                    <Grid ColumnSpacing="14" RowSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="110" />
+                        </Grid.ColumnDefinitions>
+
+                        <ComboBox
+                            x:Name="DriveComboBox"
+                            Grid.Column="0"
+                            HorizontalAlignment="Stretch"
+                            Header="Target Drive"
+                            PlaceholderText="No optical drive detected"
+                            SelectionChanged="DriveComboBox_SelectionChanged" />
+
+                        <ComboBox
+                            x:Name="SpeedComboBox"
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Header="Write Speed" />
+
+                        <ComboBox
+                            x:Name="WriteModeComboBox"
+                            Grid.Column="2"
+                            HorizontalAlignment="Stretch"
+                            Header="Write Method"
+                            SelectedIndex="0">
+                            <ComboBoxItem Content="Automatic" Tag="Auto" />
+                            <ComboBoxItem Content="Track-at-Once (TAO)" Tag="TAO" />
+                            <ComboBoxItem Content="Session-at-Once (SAO)" Tag="SAO" />
+                            <ComboBoxItem Content="Disc-at-Once (DAO/96)" Tag="DAO96" />
+                        </ComboBox>
+
+                        <NumberBox
+                            x:Name="CopiesBox"
+                            Grid.Column="3"
+                            Header="Copies"
+                            Value="1"
+                            Minimum="1"
+                            Maximum="99"
+                            SpinButtonPlacementMode="Compact" />
+                    </Grid>
+
+                    <Grid ColumnSpacing="20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="6">
+                            <CheckBox x:Name="FinalizeCheckBox" Content="Finalize disc (no further writing possible)" IsChecked="True" />
+                            <CheckBox x:Name="VerifyCheckBox" Content="Verify data after burning" />
+                            <CheckBox x:Name="Mode2XaCheckBox" Content="Mode 2 / XA (CD-ROM XA)" />
+                            <CheckBox x:Name="PaddingCheckBox" Content="DVD high compatibility mode (padding)" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="6">
+                            <CheckBox x:Name="SimulateCheckBox" Content="Simulate burning (test write)" />
+                            <CheckBox x:Name="EjectCheckBox" Content="Eject disc after burning" IsChecked="True" />
+                            <CheckBox x:Name="ShutdownCheckBox" Content="Shut down computer after completion" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Action Buttons -->
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button
+                    x:Name="BurnButton"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Click="BurnButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE958;" FontSize="15" />
+                        <TextBlock Text="Burn Disc" />
+                    </StackPanel>
+                </Button>
+                <Button
+                    x:Name="CancelButton"
+                    Content="Cancel"
+                    IsEnabled="False"
+                    Click="CancelButton_Click" />
+            </StackPanel>
+
+            <!-- Progress & Log -->
+            <Border
+                x:Name="ProgressCard"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20"
+                Visibility="Collapsed">
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <TextBlock x:Name="ProgressPhaseText" Text="Ready" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            x:Name="ProgressTimeText"
+                            HorizontalAlignment="Right"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <ProgressBar x:Name="BurnProgressBar" Minimum="0" Maximum="100" Value="0" />
+                    <TextBox
+                        x:Name="EventLogBox"
+                        Header="Event Log"
+                        IsReadOnly="True"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Height="130"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

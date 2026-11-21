@@ -1,0 +1,71 @@
+<ContentDialog
+    x:Class="CDBurner10.App.Views.Dialogs.DiscSpanningDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:dialogs="using:CDBurner10.App.Views.Dialogs"
+    Title="Disc Spanning (Split Across Multiple Discs)"
+    CloseButtonText="Close"
+    DefaultButton="Close">
+    <ScrollViewer MaxHeight="560" MinWidth="500">
+        <StackPanel Spacing="14" Padding="0,4,10,4">
+            <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="False" />
+
+            <TextBlock
+                x:Name="SourceSummaryText"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+            <ComboBox x:Name="DiscSizeComboBox" Header="Target Media Capacity" HorizontalAlignment="Stretch" SelectedIndex="1">
+                <ComboBoxItem Content="CD-R / CD-RW (700 MB)" Tag="734003200" />
+                <ComboBoxItem Content="DVD-5 Single Layer (4.7 GB / 4.38 GiB)" Tag="4700000000" />
+                <ComboBoxItem Content="DVD-9 Dual Layer (8.5 GB / 7.95 GiB)" Tag="8540000000" />
+                <ComboBoxItem Content="Blu-ray BD-R (25 GB / 23.3 GiB)" Tag="25025314816" />
+                <ComboBoxItem Content="Blu-ray BD-R DL (50 GB / 46.6 GiB)" Tag="50050629632" />
+            </ComboBox>
+
+            <RadioButtons x:Name="AlgorithmRadio" Header="Splitting Algorithm" SelectedIndex="0">
+                <RadioButton Content="Optimize disc count (fewest discs — bin packing)" />
+                <RadioButton Content="Preserve folder structure (keep folders grouped together)" />
+            </RadioButtons>
+
+            <CheckBox x:Name="IncludeTocCheckBox" Content="Add 'Table of contents.txt' to every disc" IsChecked="True" />
+
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button
+                    x:Name="SplitButton"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Content="Calculate Split"
+                    Click="SplitButton_Click" />
+                <ProgressRing x:Name="SplitProgressRing" IsActive="False" Width="22" Height="22" />
+            </StackPanel>
+
+            <!-- Split Results -->
+            <StackPanel x:Name="ResultsPanel" Spacing="10" Visibility="Collapsed">
+                <TextBlock x:Name="ResultSummaryText" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <ListView x:Name="SplitDiscsListView" SelectionMode="Single" MaxHeight="180">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="dialogs:SplitDiscRow">
+                            <Grid Padding="4,6" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{x:Bind Label}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Grid.Column="1" Text="{x:Bind FileCountText}" />
+                                <TextBlock Grid.Column="2" Text="{x:Bind SizeText}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <ProgressBar x:Name="ActionProgressBar" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" />
+
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="BurnSelectedButton" Style="{StaticResource AccentButtonStyle}" Content="Burn Selected Disc" Click="BurnSelectedButton_Click" />
+                    <Button x:Name="SaveIsosButton" Content="Save All as ISOs..." Click="SaveIsosButton_Click" />
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

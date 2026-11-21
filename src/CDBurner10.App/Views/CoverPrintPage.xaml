@@ -1,0 +1,209 @@
+<Page
+    x:Class="CDBurner10.App.Views.CoverPrintPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Padding="28,20">
+        <StackPanel MaxWidth="1060" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Cover &amp; Label Designer" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Design, preview, print, or export CD, DVD, Blu-ray covers and track lists."
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="True" />
+
+            <Grid ColumnSpacing="20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="420" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: Designer Controls -->
+                <Border
+                    Grid.Column="0"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="18">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Cover Settings" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                        <ComboBox
+                            x:Name="CoverTypeComboBox"
+                            HorizontalAlignment="Stretch"
+                            Header="Cover Layout"
+                            SelectionChanged="CoverTypeComboBox_SelectionChanged" />
+
+                        <TextBox
+                            x:Name="TitleBox"
+                            Header="Title"
+                            PlaceholderText="Album or Disc Title"
+                            TextChanged="DesignerInput_Changed" />
+
+                        <TextBox
+                            x:Name="SubtitleBox"
+                            Header="Subtitle / Artist"
+                            PlaceholderText="Artist, date, or notes"
+                            TextChanged="DesignerInput_Changed" />
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <NumberBox
+                                x:Name="ColumnsBox"
+                                Grid.Column="0"
+                                Header="Columns"
+                                Value="1"
+                                Minimum="1"
+                                Maximum="3"
+                                SpinButtonPlacementMode="Compact"
+                                ValueChanged="ColumnsBox_ValueChanged" />
+                            <CheckBox
+                                x:Name="ShowNumbersCheckBox"
+                                Grid.Column="1"
+                                Content="Number items"
+                                IsChecked="True"
+                                VerticalAlignment="Bottom"
+                                Checked="DesignerOption_Changed"
+                                Unchecked="DesignerOption_Changed" />
+                        </Grid>
+
+                        <!-- Background Image Picker -->
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Cover Background Image" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Choose Image..." Click="PickBackgroundButton_Click" />
+                                <Button Content="Clear" Click="ClearBackgroundButton_Click" />
+                            </StackPanel>
+                            <TextBlock
+                                x:Name="BackgroundPathText"
+                                Text="No background image selected"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <!-- Auto-Populate from Compilation -->
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Auto-Populate Track / File List" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="From Audio Compilation" Click="PopulateAudioButton_Click" />
+                                <Button Content="From Data Compilation" Click="PopulateDataButton_Click" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBox
+                            x:Name="ItemsBox"
+                            Header="Tracks / Files (one per line)"
+                            AcceptsReturn="True"
+                            TextWrapping="NoWrap"
+                            Height="160"
+                            ScrollViewer.VerticalScrollBarVisibility="Auto"
+                            TextChanged="DesignerInput_Changed" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Right: Live Scaled Preview & Actions -->
+                <StackPanel Grid.Column="1" Spacing="14">
+                    <Border
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="20">
+                        <StackPanel Spacing="12">
+                            <Grid>
+                                <TextBlock Text="Live Scaled Preview" Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <TextBlock
+                                    x:Name="DimensionsText"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+
+                            <!-- Preview Canvas Container -->
+                            <Border
+                                Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                CornerRadius="6"
+                                Padding="20"
+                                MinHeight="380">
+                                <Border
+                                    x:Name="CoverPreviewCard"
+                                    Width="340"
+                                    Height="340"
+                                    Background="White"
+                                    BorderBrush="#888888"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                                    <Grid>
+                                        <Image
+                                            x:Name="PreviewBackgroundImage"
+                                            Stretch="UniformToFill"
+                                            Opacity="0.28" />
+                                        <Grid Padding="18">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="*" />
+                                            </Grid.RowDefinitions>
+                                            <TextBlock
+                                                x:Name="PreviewTitleText"
+                                                Grid.Row="0"
+                                                Text="My Disc"
+                                                FontSize="20"
+                                                FontWeight="SemiBold"
+                                                Foreground="#111111"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                x:Name="PreviewSubtitleText"
+                                                Grid.Row="1"
+                                                Text=""
+                                                FontSize="12"
+                                                Foreground="#444444"
+                                                Margin="0,2,0,10"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                x:Name="PreviewItemsText"
+                                                Grid.Row="2"
+                                                Text=""
+                                                FontSize="11"
+                                                Foreground="#222222"
+                                                TextWrapping="Wrap"
+                                                TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </Border>
+
+                            <!-- Print / Export Buttons -->
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Click="PrintCoverButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE749;" FontSize="15" />
+                                        <TextBlock Text="Print Cover (HTML)" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Click="ExportPngButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE74E;" FontSize="15" />
+                                        <TextBlock Text="Export PNG Image..." />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

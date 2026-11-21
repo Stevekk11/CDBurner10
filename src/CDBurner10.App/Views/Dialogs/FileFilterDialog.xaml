@@ -1,0 +1,32 @@
+<ContentDialog
+    x:Class="CDBurner10.App.Views.Dialogs.FileFilterDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="File Filter"
+    PrimaryButtonText="Apply Filter"
+    SecondaryButtonText="Clear Filter"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
+    <StackPanel Spacing="14" MinWidth="420">
+        <TextBox
+            x:Name="PatternBox"
+            Header="Wildcard Pattern (semicolon-separated)"
+            PlaceholderText="e.g. *.jpg;*.png;*.mp3" />
+        <TextBlock
+            Text="Use * and ? wildcards separated by semicolons (;). Leave blank to disable filtering."
+            Style="{StaticResource CaptionTextBlockStyle}"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            TextWrapping="Wrap" />
+
+        <RadioButtons x:Name="ModeRadio" Header="Filter Mode" SelectedIndex="0">
+            <RadioButton Content="Include only matching files" />
+            <RadioButton Content="Exclude matching files" />
+        </RadioButtons>
+
+        <CheckBox
+            x:Name="ApplyToBrowserCheckBox"
+            Content="Also apply filter to integrated file browser"
+            IsChecked="True" />
+    </StackPanel>
+</ContentDialog>

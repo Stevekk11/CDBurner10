@@ -1,0 +1,214 @@
+<Page
+    x:Class="CDBurner10.App.Views.CopyDiscPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Padding="28,20">
+        <StackPanel MaxWidth="980" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Copy / Grab Disc" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Duplicate an optical disc directly to another drive or grab it to an ISO / MDS image on your hard disc."
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="True" />
+
+            <!-- Source Card -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Source Drive" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox
+                            x:Name="SourceDriveComboBox"
+                            Grid.Column="0"
+                            HorizontalAlignment="Stretch"
+                            Header="Read From Drive"
+                            PlaceholderText="No optical drive detected"
+                            SelectionChanged="SourceDriveComboBox_SelectionChanged" />
+                        <ComboBox
+                            x:Name="ReadSpeedComboBox"
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Header="Read Speed" />
+                        <Button
+                            Grid.Column="2"
+                            Content="Refresh"
+                            VerticalAlignment="Bottom"
+                            Click="RefreshSourceButton_Click" />
+                    </Grid>
+                    <TextBlock
+                        x:Name="SourceDiscStatusText"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="No drive selected." />
+                </StackPanel>
+            </Border>
+
+            <!-- Target Mode Card -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Target Destination" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                    <RadioButtons
+                        x:Name="TargetModeRadio"
+                        MaxColumns="2"
+                        SelectedIndex="0"
+                        SelectionChanged="TargetModeRadio_SelectionChanged">
+                        <RadioButton Content="Optical Drive (Copy Disc)" />
+                        <RadioButton Content="Hard Disc (Save as ISO / MDS Image)" />
+                    </RadioButtons>
+
+                    <!-- Optical Target Options -->
+                    <StackPanel x:Name="OpticalTargetPanel" Spacing="12">
+                        <Grid ColumnSpacing="14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="110" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                x:Name="TargetDriveComboBox"
+                                Grid.Column="0"
+                                HorizontalAlignment="Stretch"
+                                Header="Target Optical Drive"
+                                PlaceholderText="No optical drive detected"
+                                SelectionChanged="TargetDriveComboBox_SelectionChanged" />
+                            <ComboBox
+                                x:Name="WriteSpeedComboBox"
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                Header="Write Speed" />
+                            <NumberBox
+                                x:Name="CopiesBox"
+                                Grid.Column="2"
+                                Header="Copies"
+                                Value="1"
+                                Minimum="1"
+                                Maximum="99"
+                                SpinButtonPlacementMode="Compact" />
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="20">
+                            <CheckBox x:Name="FinalizeCheckBox" Content="Finalize target disc" IsChecked="True" />
+                            <CheckBox x:Name="EjectCheckBox" Content="Eject disc after copy" IsChecked="True" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Hard Disc ISO/MDS Target Options -->
+                    <StackPanel x:Name="HardDiscTargetPanel" Spacing="12" Visibility="Collapsed">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox
+                                x:Name="TargetImagePathBox"
+                                Grid.Column="0"
+                                Header="Output Image File (.iso or .mds)"
+                                PlaceholderText="Choose destination path for disc image..." />
+                            <Button
+                                Grid.Column="1"
+                                Content="Browse..."
+                                VerticalAlignment="Bottom"
+                                Click="BrowseTargetImageButton_Click" />
+                        </Grid>
+                        <CheckBox x:Name="DvdVideoGrabCheckBox" Content="Grab as DVD-Video disc image" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Read Error Options Card -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Read Error Handling" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Grid ColumnSpacing="20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="160" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="6">
+                            <CheckBox x:Name="IgnoreBadBlocksCheckBox" Content="Ignore unreadable data (bad sectors)" />
+                            <CheckBox x:Name="DisableHwEcCheckBox" Content="Disable hardware error correction" />
+                        </StackPanel>
+                        <NumberBox
+                            x:Name="ReadRetriesBox"
+                            Grid.Column="1"
+                            Header="Read Retries"
+                            Value="3"
+                            Minimum="0"
+                            Maximum="20"
+                            SpinButtonPlacementMode="Compact" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Actions -->
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button
+                    x:Name="StartCopyButton"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Click="StartCopyButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8C8;" FontSize="15" />
+                        <TextBlock x:Name="StartCopyButtonText" Text="Copy Disc" />
+                    </StackPanel>
+                </Button>
+                <Button
+                    x:Name="CancelButton"
+                    Content="Cancel"
+                    IsEnabled="False"
+                    Click="CancelButton_Click" />
+            </StackPanel>
+
+            <!-- Progress & Log -->
+            <Border
+                x:Name="ProgressCard"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20"
+                Visibility="Collapsed">
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <TextBlock x:Name="ProgressPhaseText" Text="Ready" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            x:Name="ProgressTimeText"
+                            HorizontalAlignment="Right"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <ProgressBar x:Name="CopyProgressBar" Minimum="0" Maximum="100" Value="0" />
+                    <TextBox
+                        x:Name="EventLogBox"
+                        Header="Event Log"
+                        IsReadOnly="True"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Height="130"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

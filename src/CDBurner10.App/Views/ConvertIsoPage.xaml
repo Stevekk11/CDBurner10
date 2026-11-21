@@ -1,0 +1,120 @@
+<Page
+    x:Class="CDBurner10.App.Views.ConvertIsoPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Padding="28,20">
+        <StackPanel MaxWidth="820" Spacing="18">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Convert Image to ISO" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock
+                    Text="Convert BIN, NRG (Nero), or B5I (BlindWrite) disc images into standard ISO9660 .iso files."
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="True" />
+
+            <!-- Input / Output Card -->
+            <Border
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Source &amp; Destination" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="SourcePathBox"
+                            Grid.Column="0"
+                            Header="Source Image (.bin, .nrg, .b5i)"
+                            PlaceholderText="Select a .bin, .nrg, or .b5i image file..."
+                            TextChanged="SourcePathBox_TextChanged" />
+                        <Button
+                            x:Name="BrowseSourceButton"
+                            Grid.Column="1"
+                            Content="Browse..."
+                            VerticalAlignment="Bottom"
+                            Click="BrowseSourceButton_Click" />
+                    </Grid>
+
+                    <InfoBar
+                        x:Name="NrgAudioWarningBar"
+                        IsOpen="False"
+                        IsClosable="False"
+                        Severity="Warning"
+                        Title="NRG Audio Image Detected"
+                        Message="This Nero (.nrg) image contains audio tracks (CUES/CUEX). Standard ISO9660 images only support data tracks; converting an audio NRG may not produce a playable disc." />
+
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="DestinationPathBox"
+                            Grid.Column="0"
+                            Header="Destination ISO File (.iso)"
+                            PlaceholderText="Output .iso file path..." />
+                        <Button
+                            x:Name="BrowseDestButton"
+                            Grid.Column="1"
+                            Content="Browse..."
+                            VerticalAlignment="Bottom"
+                            Click="BrowseDestButton_Click" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Actions -->
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button
+                    x:Name="ConvertButton"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Click="ConvertButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8AB;" FontSize="15" />
+                        <TextBlock Text="Convert to ISO" />
+                    </StackPanel>
+                </Button>
+                <Button
+                    x:Name="CancelButton"
+                    Content="Cancel"
+                    IsEnabled="False"
+                    Click="CancelButton_Click" />
+                <Button
+                    x:Name="BurnResultButton"
+                    Content="Burn Resulting ISO..."
+                    Visibility="Collapsed"
+                    Click="BurnResultButton_Click" />
+            </StackPanel>
+
+            <!-- Progress Card -->
+            <Border
+                x:Name="ProgressCard"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="20"
+                Visibility="Collapsed">
+                <StackPanel Spacing="10">
+                    <Grid>
+                        <TextBlock x:Name="ProgressStatusText" Text="Converting..." Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock
+                            x:Name="ProgressPercentText"
+                            HorizontalAlignment="Right"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <ProgressBar x:Name="ConvertProgressBar" Minimum="0" Maximum="100" Value="0" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
