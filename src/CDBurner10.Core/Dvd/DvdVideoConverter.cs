@@ -541,7 +541,7 @@ public static class DvdVideoConverter
         try
         {
             long sampleBytes = await Task.Run(() =>
-                UnfinalizedDvdReader.ReadSampleToFile(driveLetter, tempSample, scan.FirstMpegSector, 4 * 1024 * 1024, ct), ct);
+                UnfinalizedDvdReader.ReadSampleToFile(driveLetter, tempSample, scan.FirstMpegSector, 1024 * 1024, ct), ct);
             if (sampleBytes <= 0)
                 throw new InvalidOperationException($"Could not read MPEG-2 sample sectors from drive {driveLetter}:\\.");
 

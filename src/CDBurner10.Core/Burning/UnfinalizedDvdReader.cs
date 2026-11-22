@@ -74,9 +74,60 @@ public static class UnfinalizedDvdReader
         try
         {
             var buf = new byte[BlockSize * EccBlockSectors];
-            int firstMpeg = -1;
+            int firstReadableBlock = -1;
 
-            for (int lba = 0; lba < MaxInitialScanSectors; lba += EccBlockSectors)
+            // Fast probe common DVD recorder / camcorder data-start LBAs first so we avoid
+            // dozens of slow SCSI read-error retries on unwritten sectors 0..1535.
+            int[] quickProbes = [1536, 2048, 2560, 3072, 4096, 8192, 16384, 32768, 512, 1024, 0];
+            foreach (int probe in quickProbes)
+            {
+                if (dvdcss_seek(dvd, probe, 0) >= 0 && dvdcss_read(dvd, buf, EccBlockSectors, 0) > 0)
+                {
+                    firstReadableBlock = probe;
+                    break;
+                }
+            }
+
+            if (firstReadableBlock > 0)
+            {
+                // Check the immediately preceding ECC block first; if it is unreadable,
+                // firstReadableBlock is already the exact start (avoids ~6 slow SCSI error retries).
+                int prevLba = firstReadableBlock - EccBlockSectors;
+                if (dvdcss_seek(dvd, prevLba, 0) >= 0 && dvdcss_read(dvd, buf, EccBlockSectors, 0) > 0)
+                {
+                    int lo = 0;
+                    int hi = prevLba / EccBlockSectors;
+                    while (lo < hi)
+                    {
+                        int mid = (lo + hi) / 2;
+                        int lba = mid * EccBlockSectors;
+                        if (dvdcss_seek(dvd, lba, 0) >= 0 && dvdcss_read(dvd, buf, EccBlockSectors, 0) > 0)
+                            hi = mid;
+                        else
+                            lo = mid + 1;
+                    }
+                    firstReadableBlock = lo * EccBlockSectors;
+                }
+            }
+            else if (firstReadableBlock < 0)
+            {
+                // Coarse scan across first 128 MB in 256-sector (512 KB) steps.
+                for (int lba = 0; lba < MaxInitialScanSectors; lba += 256)
+                {
+                    if (dvdcss_seek(dvd, lba, 0) >= 0 && dvdcss_read(dvd, buf, EccBlockSectors, 0) > 0)
+                    {
+                        firstReadableBlock = lba;
+                        break;
+                    }
+                }
+            }
+
+            if (firstReadableBlock < 0)
+                return false;
+
+            int firstMpeg = -1;
+            int scanLimit = Math.Min(MaxInitialScanSectors, firstReadableBlock + 4096);
+            for (int lba = firstReadableBlock; lba < scanLimit; lba += EccBlockSectors)
             {
                 if (dvdcss_seek(dvd, lba, 0) < 0) continue;
                 int read = dvdcss_read(dvd, buf, EccBlockSectors, 0);
