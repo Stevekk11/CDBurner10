@@ -284,6 +284,62 @@ public sealed partial class AudioCompilationPage : Page
         }
     }
 
+    private async void ExportTracks_Click(object sender, RoutedEventArgs e)
+    {
+        var tracks = TracksListView.SelectedItems.OfType<AudioTrackItem>().ToList();
+        if (tracks.Count == 0)
+            tracks = ViewModel.Tracks.ToList();
+        if (tracks.Count == 0)
+        {
+            await AppServices.Current.Dialogs.ShowMessageAsync(XamlRoot, "No Tracks", "Add or rip audio tracks first.");
+            return;
+        }
+
+        var folder = await FilePickerHelper.PickFolderAsync(PickerLocationId.MusicLibrary);
+        if (string.IsNullOrWhiteSpace(folder)) return;
+
+        int exported = 0;
+        var errors = new List<string>();
+        foreach (var item in tracks)
+        {
+            var src = item.Model.FileName;
+            if (!File.Exists(src))
+            {
+                errors.Add($"{Path.GetFileName(src)}: file not found.");
+                continue;
+            }
+
+            try
+            {
+                string ext = Path.GetExtension(src);
+                string title = string.IsNullOrWhiteSpace(item.Title)
+                    ? Path.GetFileNameWithoutExtension(src)
+                    : item.Title;
+                string baseName = CDBurner10.Core.Utilities.PathHelper.ReplaceInvalidFileNameChars($"{item.TrackNumber:D2} - {title}");
+                string dest = Path.Combine(folder, baseName + ext);
+                int suffix = 1;
+                while (File.Exists(dest))
+                {
+                    dest = Path.Combine(folder, $"{baseName}_{suffix}{ext}");
+                    suffix++;
+                }
+
+                await Task.Run(() => File.Copy(src, dest));
+                exported++;
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{Path.GetFileName(src)}: {ex.Message}");
+            }
+        }
+
+        string summary = $"Exported {exported} track(s) to '{folder}'.";
+        if (errors.Count > 0)
+            summary += $"\n\n{errors.Count} failed:\n" + string.Join("\n", errors.Take(5));
+
+        await AppServices.Current.Dialogs.ShowMessageAsync(XamlRoot, "Export Tracks", summary);
+    }
+
     private async void BurnAudioCd_Click(object sender, RoutedEventArgs e)
     {
         await AppServices.Current.Dialogs.ShowBurnAudioDialogAsync(XamlRoot, ViewModel.Compilation, AppServices.Current.SelectedDrive);

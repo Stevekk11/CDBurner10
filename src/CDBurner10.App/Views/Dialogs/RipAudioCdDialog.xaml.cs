@@ -3,6 +3,7 @@ using CDBurner10.App.Services;
 using CDBurner10.Core.Burning;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.Storage.Pickers;
 
 namespace CDBurner10.App.Views.Dialogs;
 
@@ -23,6 +24,7 @@ public sealed partial class RipAudioCdDialog : ContentDialog
                                      ?? drives.FirstOrDefault();
 
         IsPrimaryButtonEnabled = false;
+        IsSecondaryButtonEnabled = false;
         _ = LoadTracksAsync();
     }
 
@@ -37,6 +39,7 @@ public sealed partial class RipAudioCdDialog : ContentDialog
             StatusInfoBar.IsOpen = true;
             AudioTracksListView.ItemsSource = null;
             IsPrimaryButtonEnabled = false;
+            IsSecondaryButtonEnabled = false;
             return;
         }
 
@@ -60,6 +63,7 @@ public sealed partial class RipAudioCdDialog : ContentDialog
             StatusInfoBar.Message = "Insert an Audio CD into the selected drive and click Refresh.";
             StatusInfoBar.IsOpen = true;
             IsPrimaryButtonEnabled = false;
+            IsSecondaryButtonEnabled = false;
             RipStatusText.Text = string.Empty;
         }
         else
@@ -67,6 +71,7 @@ public sealed partial class RipAudioCdDialog : ContentDialog
             StatusInfoBar.IsOpen = false;
             AudioTracksListView.SelectAll();
             IsPrimaryButtonEnabled = true;
+            IsSecondaryButtonEnabled = true;
             RipStatusText.Text = $"{audioTracks.Count} audio track(s) available.";
         }
     }
@@ -76,12 +81,55 @@ public sealed partial class RipAudioCdDialog : ContentDialog
 
     private async void ContentDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
-        var drive = DriveComboBox.SelectedItem as DriveModel;
-        var selected = AudioTracksListView.SelectedItems.OfType<AudioCdTrackRow>().ToList();
-        if (drive is null || selected.Count == 0) return;
+        var deferral = args.GetDeferral();
+        try
+        {
+            var ripped = await RipSelectedAsync(exportFolder: null);
+            if (ripped is null)
+            {
+                args.Cancel = true;
+                return;
+            }
+            RippedFiles = ripped;
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    private async void ContentDialog_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        args.Cancel = true; // Keep dialog open to show export result
+        var folder = await FilePickerHelper.PickFolderAsync(PickerLocationId.MusicLibrary);
+        if (string.IsNullOrWhiteSpace(folder)) return;
 
         var deferral = args.GetDeferral();
+        try
+        {
+            var ripped = await RipSelectedAsync(exportFolder: folder);
+            if (ripped is { Count: > 0 })
+            {
+                StatusInfoBar.Severity = InfoBarSeverity.Success;
+                StatusInfoBar.Title = "Tracks Exported";
+                StatusInfoBar.Message = $"Exported {ripped.Count} WAV track(s) to '{folder}'.";
+                StatusInfoBar.IsOpen = true;
+            }
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    private async Task<List<string>?> RipSelectedAsync(string? exportFolder)
+    {
+        var drive = DriveComboBox.SelectedItem as DriveModel;
+        var selected = AudioTracksListView.SelectedItems.OfType<AudioCdTrackRow>().ToList();
+        if (drive is null || selected.Count == 0) return null;
+
         IsPrimaryButtonEnabled = false;
+        IsSecondaryButtonEnabled = false;
         RipProgressBar.Visibility = Visibility.Visible;
         RipProgressBar.Value = 0;
 
@@ -93,7 +141,9 @@ public sealed partial class RipAudioCdDialog : ContentDialog
             for (int i = 0; i < selected.Count; i++)
             {
                 var tr = selected[i];
-                var wavPath = AppServices.Current.Settings.GetTempRipFileName($"Track_{tr.TrackNumber:D2}", ".wav");
+                var wavPath = string.IsNullOrWhiteSpace(exportFolder)
+                    ? AppServices.Current.Settings.GetTempRipFileName($"Track_{tr.TrackNumber:D2}", ".wav")
+                    : GetUniqueExportPath(exportFolder, $"Track_{tr.TrackNumber:D2}", ".wav");
                 int idx = i;
                 var prog = new Progress<BurnProgress>(p =>
                 {
@@ -110,21 +160,34 @@ public sealed partial class RipAudioCdDialog : ContentDialog
                 ripped.Add(wavPath);
             }
 
-            RippedFiles = ripped;
+            RipStatusText.Text = $"Finished ripping {ripped.Count} track(s).";
+            return ripped;
         }
         catch (Exception ex)
         {
-            args.Cancel = true;
             StatusInfoBar.Severity = InfoBarSeverity.Error;
             StatusInfoBar.Title = "Rip Failed";
             StatusInfoBar.Message = ex.Message;
             StatusInfoBar.IsOpen = true;
-            IsPrimaryButtonEnabled = true;
+            return null;
         }
         finally
         {
             RipProgressBar.Visibility = Visibility.Collapsed;
-            deferral.Complete();
+            IsPrimaryButtonEnabled = true;
+            IsSecondaryButtonEnabled = true;
         }
+    }
+
+    private static string GetUniqueExportPath(string folder, string baseName, string extension)
+    {
+        string candidate = Path.Combine(folder, baseName + extension);
+        int suffix = 1;
+        while (File.Exists(candidate))
+        {
+            candidate = Path.Combine(folder, $"{baseName}_{suffix}{extension}");
+            suffix++;
+        }
+        return candidate;
     }
 }

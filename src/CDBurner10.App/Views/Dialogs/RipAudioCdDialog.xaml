@@ -4,10 +4,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:dialogs="using:CDBurner10.App.Views.Dialogs"
     Title="Rip Audio CD Tracks"
-    PrimaryButtonText="Rip Selected Tracks"
+    PrimaryButtonText="Add to Compilation"
+    SecondaryButtonText="Export Tracks to..."
     CloseButtonText="Close"
     DefaultButton="Primary"
-    PrimaryButtonClick="ContentDialog_PrimaryButtonClick">
+    PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
+    SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
     <StackPanel Spacing="12" MinWidth="480">
         <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="False" />
 

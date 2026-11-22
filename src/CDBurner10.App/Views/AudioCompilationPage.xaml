@@ -81,6 +81,9 @@
                     <AppBarButton Label="Export CUE / M3U..." Click="ExportPlaylist_Click">
                         <AppBarButton.Icon><FontIcon Glyph="&#xEDE1;" /></AppBarButton.Icon>
                     </AppBarButton>
+                    <AppBarButton Label="Export Tracks to..." Click="ExportTracks_Click">
+                        <AppBarButton.Icon><FontIcon Glyph="&#xE8B7;" /></AppBarButton.Icon>
+                    </AppBarButton>
                 </CommandBar.SecondaryCommands>
             </CommandBar>
 
