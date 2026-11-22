@@ -52,7 +52,7 @@ public sealed partial class AudioCompilationPage : Page
         AppServices.Current.ActiveCompilationMode = "Audio";
         AppServices.Current.FilesDroppedForAudio += OnExternalFilesDropped;
         ViewModel.Player.StateChanged += OnPlayerStateChanged;
-        ViewModel.RefreshTracks();
+        ViewModel.RefreshTracks(persist: false);
         _playerTimer.Start();
 
         if (e.Parameter is string filePath && File.Exists(filePath))

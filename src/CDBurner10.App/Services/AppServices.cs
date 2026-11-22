@@ -75,6 +75,56 @@ public sealed partial class AppServices : ObservableObject, IDisposable
         {
             // BASS init is best-effort; audio playback/tags will retry when used
         }
+
+        RestoreAudioSession();
+    }
+
+    private string AudioSessionFilePath => Path.Combine(Settings.SettingsDirectory, "audio_session.axp");
+
+    public void SaveAudioSession()
+    {
+        try
+        {
+            ActiveAudioCompilation.Save(AudioSessionFilePath, copyTempRipFiles: false);
+        }
+        catch
+        {
+            // Best-effort session persistence
+        }
+    }
+
+    public void RestoreAudioSession()
+    {
+        try
+        {
+            if (File.Exists(AudioSessionFilePath))
+            {
+                ActiveAudioCompilation.Load(AudioSessionFilePath);
+                return;
+            }
+
+            // First launch with existing temp rips: recover any .wav files already in Temp\Rip
+            var ripDir = Settings.GetTempRipDirectory();
+            if (Directory.Exists(ripDir))
+            {
+                var wavs = Directory.EnumerateFiles(ripDir, "*.wav", SearchOption.TopDirectoryOnly)
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (wavs.Count > 0)
+                {
+                    foreach (var wav in wavs)
+                    {
+                        try { ActiveAudioCompilation.Tracks.Add(AudioTrackItem.FromFile(wav, Settings.Current.AudioAutoCDText)); }
+                        catch { }
+                    }
+                    SaveAudioSession();
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort session restore
+        }
     }
 
     public async Task RefreshDrivesAsync()
@@ -181,6 +231,7 @@ public sealed partial class AppServices : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        SaveAudioSession();
         AudioPlayer.Dispose();
         try { BassAudioEngine.Shutdown(); } catch { }
         try { BurningEngine.Uninitialize(); } catch { }

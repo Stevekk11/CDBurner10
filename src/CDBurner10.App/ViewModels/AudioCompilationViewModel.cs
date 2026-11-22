@@ -62,10 +62,10 @@ public sealed partial class AudioCompilationViewModel : ObservableObject
 
     public AudioCompilationViewModel()
     {
-        RefreshTracks();
+        RefreshTracks(persist: false);
     }
 
-    public void RefreshTracks()
+    public void RefreshTracks(bool persist = true)
     {
         Tracks.Clear();
         for (int i = 0; i < Compilation.Tracks.Count; i++)
@@ -81,6 +81,9 @@ public sealed partial class AudioCompilationViewModel : ObservableObject
         var total = Compilation.TotalDuration;
         CompilationSubtitle = $"{Tracks.Count} track(s) • {FormatHelper.FormatDuration(total)}";
         TotalDurationChanged?.Invoke(this, total.TotalSeconds);
+
+        if (persist)
+            AppServices.Current.SaveAudioSession();
     }
 
     public List<ItemAddError> AddPaths(IEnumerable<string> paths)

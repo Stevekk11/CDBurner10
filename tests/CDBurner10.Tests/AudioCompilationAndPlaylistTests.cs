@@ -2,6 +2,7 @@ using System.Text;
 using CDBurner10.Core.Audio;
 using CDBurner10.Core.Audio.Cue;
 using CDBurner10.Core.Burning;
+using CDBurner10.Core.Settings;
 
 namespace CDBurner10.Tests;
 
@@ -163,5 +164,37 @@ public sealed class AudioCompilationAndPlaylistTests
         var truncated = AudioTrackItem.StripToCdTextSize(longText);
         Assert.Equal(32, truncated.Length);
         Assert.Equal("12345678901234567890123456789012", truncated);
+    }
+
+    [Fact]
+    public void AudioCompilation_SessionSaveWithoutCopyingTempRipFiles_RoundTrips()
+    {
+        using var tmp = new TempDirectory();
+        var ripDir = SettingsService.Default.GetTempRipDirectory();
+        var srcWav = tmp.CreateSyntheticWav("sample.wav", 500);
+        var tempWav = Path.Combine(ripDir, $"test_session_{Guid.NewGuid():N}.wav");
+        File.Copy(srcWav, tempWav, overwrite: true);
+
+        try
+        {
+            var comp = new AudioCompilation { Title = "Session" };
+            comp.Tracks.Add(AudioTrackItem.FromFile(tempWav, autoPopulateCdText: false));
+
+            var sessionAxp = Path.Combine(tmp.Path, "audio_session.axp");
+            comp.Save(sessionAxp, copyTempRipFiles: false);
+
+            // Should NOT copy the temp wav into tmp.Path
+            Assert.False(File.Exists(Path.Combine(tmp.Path, Path.GetFileName(tempWav))));
+
+            var restored = new AudioCompilation();
+            var errors = restored.Load(sessionAxp);
+            Assert.Empty(errors);
+            Assert.Single(restored.Tracks);
+            Assert.Equal(tempWav, restored.Tracks[0].FileName);
+        }
+        finally
+        {
+            try { File.Delete(tempWav); } catch { }
+        }
     }
 }

@@ -134,7 +134,7 @@ public sealed class AudioCompilation
         return errors.ToArray();
     }
 
-    public void Save(string axpFilePath, IProgress<double>? progress = null)
+    public void Save(string axpFilePath, IProgress<double>? progress = null, bool copyTempRipFiles = true)
     {
         var dir = Path.GetDirectoryName(axpFilePath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -162,7 +162,8 @@ public sealed class AudioCompilation
         {
             var track = Tracks[i];
             string pathToSave = track.FileName;
-            if (!string.IsNullOrEmpty(dir) &&
+            if (copyTempRipFiles &&
+                !string.IsNullOrEmpty(dir) &&
                 track.FileName.StartsWith(tempRipDir, StringComparison.OrdinalIgnoreCase) &&
                 File.Exists(track.FileName))
             {
