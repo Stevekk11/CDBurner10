@@ -24,6 +24,7 @@ public sealed partial class DvdToMp4Page : Page
     private bool _navigatedWithFile;
     private string _lastOutput = string.Empty;
     private string? _autoDestination;
+    private bool _sourceCssProtected;
 
     public DvdToMp4Page()
     {
@@ -155,6 +156,7 @@ public sealed partial class DvdToMp4Page : Page
     private async Task UpdateSelectedDriveAsync()
     {
         var drive = SourceDriveComboBox.SelectedItem as DriveModel;
+        _sourceCssProtected = false;
         if (drive is null)
         {
             DriveStatusText.Text = "No optical drive detected. Switch to ISO / VIDEO_TS Folder mode to convert local files.";
@@ -173,6 +175,7 @@ public sealed partial class DvdToMp4Page : Page
             return;
         }
 
+        _sourceCssProtected = info.IsCssProtected;
         string protection = info.IsCssProtected ? " • CSS protected" : string.Empty;
         string unfinalized = info.IsNextSessionAllowed && info.Sessions.Count == 0 && info.UsedSizeBytes > 0
             ? " • Unfinalized disc (raw MPEG-2 recovery supported)"
@@ -541,12 +544,15 @@ public sealed partial class DvdToMp4Page : Page
         AppendLog($"Source: {source} (Title {info.TitleNumber}, {FormatHelper.FormatDuration(info.Duration)}, {info.Width}×{info.Height})");
         AppendLog($"Output: {destination}");
         AppendLog($"Encoder: {resolvedEncoder}, CRF {crf} ({preset}), Audio: {selectedAudio?.DisplayName ?? "None"}, Subtitles: {selectedSubtitle?.DisplayName ?? "None"}, Deinterlace: {options.Deinterlace}");
+        if (IsOpticalMode && _sourceCssProtected)
+            AppendLog("CSS copy protection detected. Decrypting the disc with libdvdcss...");
         if (info.IsUnfinalizedRaw)
             AppendLog($"Unfinalized DVD detected — streaming raw MPEG-2 sectors from LBA {info.UnfinalizedScan?.FirstMpegSector:N0} directly into ffmpeg...");
         else if (info.UseNavigatedWalker)
             AppendLog("Using libdvdnav navigation walker for disc reading...");
 
         int lastLoggedMilestone = -1;
+        var convertWatch = Stopwatch.StartNew();
         _cts = new CancellationTokenSource();
         var progress = new Progress<DvdMp4Progress>(p =>
         {
@@ -584,8 +590,8 @@ public sealed partial class DvdToMp4Page : Page
             ProgressDetailText.Text = $"Saved {Path.GetFileName(destination)}";
             long outSize = File.Exists(destination) ? new FileInfo(destination).Length : 0;
             AppendLog(outSize > 0
-                ? $"Completed successfully. Saved '{Path.GetFileName(destination)}' ({FormatHelper.FormatBytes(outSize)})."
-                : $"Completed successfully. Saved '{Path.GetFileName(destination)}'.");
+                ? $"Completed successfully in {FormatHelper.FormatDuration(convertWatch.Elapsed)}. Saved '{Path.GetFileName(destination)}' ({FormatHelper.FormatBytes(outSize)})."
+                : $"Completed successfully in {FormatHelper.FormatDuration(convertWatch.Elapsed)}. Saved '{Path.GetFileName(destination)}'.");
             OpenMp4Button.Visibility = Visibility.Visible;
             ShowInFolderButton.Visibility = Visibility.Visible;
             ShowStatus(InfoBarSeverity.Success, "MP4 Created", $"Saved '{Path.GetFileName(destination)}'.");
@@ -593,13 +599,13 @@ public sealed partial class DvdToMp4Page : Page
         catch (OperationCanceledException)
         {
             ProgressStatusText.Text = "Conversion cancelled.";
-            AppendLog("Conversion cancelled by user.");
+            AppendLog($"Conversion cancelled by user after {FormatHelper.FormatDuration(convertWatch.Elapsed)}.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "DVD to MP4 conversion was cancelled.");
         }
         catch (Exception ex)
         {
             ProgressStatusText.Text = "Conversion failed.";
-            AppendLog($"ERROR: {ex.Message}");
+            AppendLog($"ERROR after {FormatHelper.FormatDuration(convertWatch.Elapsed)}: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Conversion Failed", ex.Message);
         }
         finally

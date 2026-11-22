@@ -225,6 +225,8 @@ public sealed partial class CopyDiscPage : Page
         var sw = Stopwatch.StartNew();
         _cts = new CancellationTokenSource();
         string lastLogged = string.Empty;
+        int lastMilestone = -1;
+        BurnPhase lastPhase = BurnPhase.Preparing;
         string? tempIso = null;
 
         var progress = new Progress<BurnProgress>(p =>
@@ -238,11 +240,37 @@ public sealed partial class CopyDiscPage : Page
                 lastLogged = p.Message;
                 AppendLog(p.Message);
             }
+
+            if (p.Phase != lastPhase)
+            {
+                lastPhase = p.Phase;
+                lastMilestone = -1;
+            }
+            if (p.Phase is BurnPhase.Burning or BurnPhase.Grabbing or BurnPhase.Verifying)
+            {
+                int milestone = p.Percent / 10 * 10;
+                if (milestone > 0 && milestone > lastMilestone && milestone < 100)
+                {
+                    lastMilestone = milestone;
+                    var extra = new List<string> { $"elapsed {FormatHelper.FormatDuration(sw.Elapsed)}" };
+                    if (p.TimeRemaining > TimeSpan.Zero) extra.Add($"ETA {FormatHelper.FormatDuration(p.TimeRemaining)}");
+                    if (p.Phase == BurnPhase.Burning && p.BufferPercent > 0) extra.Add($"buffer {p.BufferPercent}%");
+                    if (p.TotalTracks > 0) extra.Add($"track {p.CurrentTrack}/{p.TotalTracks}");
+                    AppendLog($"{p.Phase}: {p.Percent}% ({string.Join(", ", extra)})");
+                }
+            }
         });
 
         try
         {
             int readSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
+            AppendLog($"Source: {sourceDrive.DisplayName}");
+            AppendLog(toHardDisc
+                ? $"Target: image file '{targetPath}'"
+                : $"Target: {targetDrive!.DisplayName}");
+            AppendLog($"Options: read speed {(readSpeed > 0 ? readSpeed + " KB/s" : "max")}, ignore bad blocks: {s.CopyIgnoreUnreadableData}, disable hardware EC: {s.CopyDisableHardwareEC}, read retries: {s.CopyReadRetries}");
+            if (!toHardDisc)
+                AppendLog($"Write options: write speed {((WriteSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps is int ws and > 0 ? ws + " KB/s" : "max")}, finalize: {s.CopyFinaliseDisc}, eject: {s.CopyEjectDisc}, copies: {Math.Max(1, (int)CopiesBox.Value)}");
             if (cssProtected)
             {
                 AppendLog("CSS copy protection detected. Decrypting the disc with libdvdcss...");
@@ -263,7 +291,10 @@ public sealed partial class CopyDiscPage : Page
                     DecryptCss = true
                 };
                 await _grabber.GrabDiscAsync(grabOpts, progress, _cts.Token);
-                AppendLog("Disc image created successfully.");
+                long imgSize = File.Exists(targetPath) ? new FileInfo(targetPath).Length : 0;
+                AppendLog(imgSize > 0
+                    ? $"Disc image created successfully. Saved '{Path.GetFileName(targetPath)}' ({FormatHelper.FormatBytes(imgSize)}) in {FormatHelper.FormatDuration(sw.Elapsed)}."
+                    : $"Disc image created successfully in {FormatHelper.FormatDuration(sw.Elapsed)}.");
                 if (targetPath.EndsWith(".iso", StringComparison.OrdinalIgnoreCase) && File.Exists(targetPath))
                 {
                     _lastGrabbedIso = targetPath;
@@ -287,6 +318,7 @@ public sealed partial class CopyDiscPage : Page
                     DecryptCss = true
                 };
                 await _grabber.GrabDiscAsync(grabOpts, progress, _cts.Token);
+                AppendLog($"Phase 1/2 complete: source disc read in {FormatHelper.FormatDuration(sw.Elapsed)}.");
 
                 if (sourceDrive.Letter.Equals(targetDrive!.Letter, StringComparison.OrdinalIgnoreCase))
                 {
@@ -315,18 +347,18 @@ public sealed partial class CopyDiscPage : Page
                     Copies = Math.Max(1, (int)CopiesBox.Value)
                 };
                 await _imageBurner.BurnAsync(burnOpts, progress, _cts.Token);
-                AppendLog("Disc copy completed successfully.");
+                AppendLog($"Disc copy completed successfully. Total time {FormatHelper.FormatDuration(sw.Elapsed)}.");
                 ShowStatus(InfoBarSeverity.Success, "Copy Completed", "Optical disc copied successfully.");
             }
         }
         catch (OperationCanceledException)
         {
-            AppendLog("Operation cancelled by user.");
+            AppendLog($"Operation cancelled by user after {FormatHelper.FormatDuration(sw.Elapsed)}.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "Disc copy operation was cancelled.");
         }
         catch (Exception ex)
         {
-            AppendLog($"ERROR: {ex.Message}");
+            AppendLog($"ERROR after {FormatHelper.FormatDuration(sw.Elapsed)}: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Copy Failed", ex.Message);
         }
         finally
