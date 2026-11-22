@@ -86,7 +86,8 @@ public sealed record DvdMp4Progress(
     double Speed,
     double Fps,
     TimeSpan TimeRemaining,
-    string Message);
+    string Message,
+    string? LogLine = null);
 
 /// <summary>
 /// Converts the main movie of a DVD-Video ISO or VIDEO_TS folder to H.264/AAC
@@ -874,6 +875,7 @@ public static class DvdVideoConverter
                         if (string.IsNullOrWhiteSpace(line)) continue;
                         errors.Enqueue(line);
                         while (errors.Count > 40 && errors.TryDequeue(out _)) { }
+                        progress?.Report(new DvdMp4Progress(-1, 0, 0, TimeSpan.Zero, string.Empty, line));
                     }
                 }
                 catch

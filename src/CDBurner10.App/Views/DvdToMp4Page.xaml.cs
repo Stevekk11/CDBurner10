@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using CDBurner10.App.Converters;
 using CDBurner10.App.Services;
 using CDBurner10.Core.Burning;
@@ -522,10 +523,32 @@ public sealed partial class DvdToMp4Page : Page
             : Path.GetFileName(source);
         ProgressStatusText.Text = $"Converting {sourceLabel} ({resolvedEncoder})...";
         ProgressDetailText.Text = string.Empty;
+        EventLogBox.Text = string.Empty;
 
+        var log = new StringBuilder();
+        void AppendLog(string msg)
+        {
+            log.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
+            EventLogBox.Text = log.ToString();
+        }
+
+        AppendLog($"Source: {source} (Title {info.TitleNumber}, {FormatHelper.FormatDuration(info.Duration)}, {info.Width}×{info.Height})");
+        AppendLog($"Output: {destination}");
+        AppendLog($"Encoder: {resolvedEncoder}, CRF {crf} ({preset}), Audio: {selectedAudio?.DisplayName ?? "None"}, Subtitles: {selectedSubtitle?.DisplayName ?? "None"}, Deinterlace: {options.Deinterlace}");
+        if (info.UseNavigatedWalker)
+            AppendLog("Using libdvdnav navigation walker for disc reading...");
+
+        int lastLoggedMilestone = -1;
         _cts = new CancellationTokenSource();
         var progress = new Progress<DvdMp4Progress>(p =>
         {
+            if (!string.IsNullOrWhiteSpace(p.LogLine))
+            {
+                AppendLog(p.LogLine);
+            }
+
+            if (p.Percent < 0) return;
+
             ConvertProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
             ProgressPercentText.Text = $"{p.Percent}%";
             ProgressStatusText.Text = $"{p.Message} ({resolvedEncoder})";
@@ -534,6 +557,14 @@ public sealed partial class DvdToMp4Page : Page
             if (p.Speed > 0) details.Add($"{p.Speed:0.0}×");
             if (p.TimeRemaining > TimeSpan.Zero) details.Add($"ETA {FormatHelper.FormatDuration(p.TimeRemaining)}");
             ProgressDetailText.Text = string.Join(" • ", details);
+
+            int milestone = p.Percent / 10 * 10;
+            if (milestone > 0 && milestone > lastLoggedMilestone && milestone < 100)
+            {
+                lastLoggedMilestone = milestone;
+                string extra = details.Count > 0 ? $" ({string.Join(", ", details)})" : string.Empty;
+                AppendLog($"Progress: {p.Percent}%{extra}");
+            }
         });
 
         try
@@ -543,6 +574,10 @@ public sealed partial class DvdToMp4Page : Page
             ProgressPercentText.Text = "100%";
             ProgressStatusText.Text = "Conversion complete.";
             ProgressDetailText.Text = $"Saved {Path.GetFileName(destination)}";
+            long outSize = File.Exists(destination) ? new FileInfo(destination).Length : 0;
+            AppendLog(outSize > 0
+                ? $"Completed successfully. Saved '{Path.GetFileName(destination)}' ({FormatHelper.FormatBytes(outSize)})."
+                : $"Completed successfully. Saved '{Path.GetFileName(destination)}'.");
             OpenMp4Button.Visibility = Visibility.Visible;
             ShowInFolderButton.Visibility = Visibility.Visible;
             ShowStatus(InfoBarSeverity.Success, "MP4 Created", $"Saved '{Path.GetFileName(destination)}'.");
@@ -550,11 +585,13 @@ public sealed partial class DvdToMp4Page : Page
         catch (OperationCanceledException)
         {
             ProgressStatusText.Text = "Conversion cancelled.";
+            AppendLog("Conversion cancelled by user.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "DVD to MP4 conversion was cancelled.");
         }
         catch (Exception ex)
         {
             ProgressStatusText.Text = "Conversion failed.";
+            AppendLog($"ERROR: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Conversion Failed", ex.Message);
         }
         finally

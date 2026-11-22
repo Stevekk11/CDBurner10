@@ -263,6 +263,14 @@
                         x:Name="ProgressDetailText"
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBox
+                        x:Name="EventLogBox"
+                        Header="Event Log"
+                        IsReadOnly="True"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Height="130"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto" />
                 </StackPanel>
             </Border>
         </StackPanel>
