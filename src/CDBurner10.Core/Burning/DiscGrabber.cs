@@ -123,6 +123,37 @@ public sealed class DiscGrabber
                 return;
             }
 
+            // Unfinalized DVD-R / DVD+R / DVD-RW (no UDF/VIDEO_TS.IFO, raw MPEG-2 sectors):
+            if (!options.ReadMode.HasValue &&
+                !string.IsNullOrWhiteSpace(options.Drive.Letter) &&
+                !DvdNavigationWalker.IsDvdVideoDrive(options.Drive) &&
+                UnfinalizedDvdReader.TryScanDrive(options.Drive.Letter, out var unfinalizedScan) &&
+                unfinalizedScan is not null)
+            {
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Grabbing,
+                    0,
+                    Message: $"Unfinalized DVD detected — recovering raw MPEG-2 video from sector {unfinalizedScan.FirstMpegSector:N0}..."));
+
+                try
+                {
+                    UnfinalizedDvdReader.ReadToFile(
+                        options.Drive.Letter,
+                        options.TargetPath,
+                        unfinalizedScan,
+                        progress,
+                        ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { File.Delete(options.TargetPath); } catch { }
+                    progress?.Report(new BurnProgress(BurnPhase.Cancelled, 0, Message: "Grab cancelled."));
+                    return;
+                }
+
+                return;
+            }
+
             var disc = options.DecryptCss
                 ? GetDiscProtection(options.Drive)
                 : (Protection: STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_NONE, UsedBytes: 0L);

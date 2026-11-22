@@ -174,7 +174,10 @@ public sealed partial class DvdToMp4Page : Page
         }
 
         string protection = info.IsCssProtected ? " • CSS protected (decrypted directly on the fly)" : string.Empty;
-        DriveStatusText.Text = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used{protection}";
+        string unfinalized = info.IsNextSessionAllowed && info.Sessions.Count == 0 && info.UsedSizeBytes > 0
+            ? " • Unfinalized disc (raw MPEG-2 recovery supported)"
+            : string.Empty;
+        DriveStatusText.Text = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used{protection}{unfinalized}";
 
         if (!string.IsNullOrWhiteSpace(drive.Letter))
         {
@@ -313,13 +316,16 @@ public sealed partial class DvdToMp4Page : Page
 
             _info = info;
             PopulateTracks(info);
-            string titleLabel = titleNumber > 0
-                ? $"Title {info.TitleNumber}"
-                : info.TotalTitles > 1
-                    ? $"Main title (Title {info.TitleNumber} of {info.TotalTitles})"
-                    : $"Main title (Title {info.TitleNumber})";
+            string titleLabel = info.IsUnfinalizedRaw
+                ? "Unfinalized DVD (raw MPEG-2 recovery)"
+                : titleNumber > 0
+                    ? $"Title {info.TitleNumber}"
+                    : info.TotalTitles > 1
+                        ? $"Main title (Title {info.TitleNumber} of {info.TotalTitles})"
+                        : $"Main title (Title {info.TitleNumber})";
+            string durPrefix = info.IsUnfinalizedRaw ? "~" : string.Empty;
             DvdInfoText.Text =
-                $"{titleLabel}: {FormatHelper.FormatDuration(info.Duration)} • {info.Width}×{info.Height} • " +
+                $"{titleLabel}: {durPrefix}{FormatHelper.FormatDuration(info.Duration)} • {info.Width}×{info.Height} • " +
                 $"{info.AudioTracks.Count} audio track(s) • {info.SubtitleTracks.Count} subtitle track(s)";
             if (StatusInfoBar.Title == "Cannot Read DVD")
                 StatusInfoBar.IsOpen = false;
@@ -535,7 +541,9 @@ public sealed partial class DvdToMp4Page : Page
         AppendLog($"Source: {source} (Title {info.TitleNumber}, {FormatHelper.FormatDuration(info.Duration)}, {info.Width}×{info.Height})");
         AppendLog($"Output: {destination}");
         AppendLog($"Encoder: {resolvedEncoder}, CRF {crf} ({preset}), Audio: {selectedAudio?.DisplayName ?? "None"}, Subtitles: {selectedSubtitle?.DisplayName ?? "None"}, Deinterlace: {options.Deinterlace}");
-        if (info.UseNavigatedWalker)
+        if (info.IsUnfinalizedRaw)
+            AppendLog($"Unfinalized DVD detected — streaming raw MPEG-2 sectors from LBA {info.UnfinalizedScan?.FirstMpegSector:N0} directly into ffmpeg...");
+        else if (info.UseNavigatedWalker)
             AppendLog("Using libdvdnav navigation walker for disc reading...");
 
         int lastLoggedMilestone = -1;

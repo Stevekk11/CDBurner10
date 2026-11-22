@@ -63,5 +63,19 @@ public sealed class DvdNavTests
         Assert.DoesNotContain("-f", preWalkedArgs);
         Assert.DoesNotContain("-trim", preWalkedArgs);
         Assert.Equal(@"C:\temp.mpg", preWalkedArgs[preWalkedArgs.IndexOf("-i") + 1]);
+
+        var pipedArgs = DvdVideoConverter.BuildFfmpegArguments("E:", @"C:\out.mp4", info, options, "libx264", isPipedMpegStream: true);
+        Assert.Equal("mpeg", pipedArgs[pipedArgs.IndexOf("-f") + 1]);
+        Assert.Equal("pipe:0", pipedArgs[pipedArgs.IndexOf("-i") + 1]);
+        Assert.DoesNotContain("-nostdin", pipedArgs);
+    }
+
+    [Fact]
+    public void UnfinalizedDvdReader_DetectsMpeg2PackStartCode()
+    {
+        Assert.True(UnfinalizedDvdReader.IsAvailable);
+        Assert.True(UnfinalizedDvdReader.IsMpeg2PackSector([0x00, 0x00, 0x01, 0xBA, 0x44, 0x00]));
+        Assert.False(UnfinalizedDvdReader.IsMpeg2PackSector([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+        Assert.False(UnfinalizedDvdReader.IsMpeg2PackSector([0x00, 0x00, 0x01]));
     }
 }

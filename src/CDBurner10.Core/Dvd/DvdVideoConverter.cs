@@ -46,6 +46,12 @@ public sealed record DvdVideoInfo(
 
     /// <summary>True when ffmpeg's dvdvideo demuxer could not open the disc directly and DvdNavigationWalker should walk it first.</summary>
     public bool UseNavigatedWalker { get; init; }
+
+    /// <summary>True when the disc is an unfinalized DVD-R/RW with no UDF/VIDEO_TS.IFO and is recovered via raw MPEG-2 sectors.</summary>
+    public bool IsUnfinalizedRaw { get; init; }
+
+    /// <summary>Scan metadata for unfinalized DVD raw sector recovery.</summary>
+    public UnfinalizedDvdScanResult? UnfinalizedScan { get; init; }
 }
 
 public enum DvdVideoEncoder
@@ -405,7 +411,9 @@ public static class DvdVideoConverter
             string driveRoot = $"{letter}:\\";
             if (File.Exists(Path.Combine(driveRoot, "VIDEO_TS", "VIDEO_TS.IFO")))
                 return;
-            throw new InvalidOperationException($"Drive {driveRoot} does not contain a DVD-Video VIDEO_TS.IFO file.");
+            if (UnfinalizedDvdReader.TryScanDrive(letter.ToString(), out _))
+                return;
+            throw new InvalidOperationException($"Drive {driveRoot} does not contain a DVD-Video VIDEO_TS.IFO file or readable raw MPEG-2 video.");
         }
 
         if (File.Exists(normalized)) return;
@@ -428,9 +436,27 @@ public static class DvdVideoConverter
 
     public static async Task<DvdVideoInfo> ProbeAsync(string source, int titleNumber, CancellationToken ct = default)
     {
-        ValidateSource(source);
+        if (string.IsNullOrWhiteSpace(source))
+            throw new InvalidOperationException("Select an optical drive, a DVD-Video ISO file, or a VIDEO_TS folder.");
+
         string ffprobe = FindFfprobe() ?? throw new InvalidOperationException(InstallHint);
         string normalized = NormalizeSource(source);
+
+        // If this is an optical drive without a finalized VIDEO_TS.IFO filesystem, check for
+        // raw MPEG-2 Program Stream sectors on an unfinalized DVD-R / DVD+R / DVD-RW.
+        if (TryExtractDriveLetter(normalized, out char driveLetter) &&
+            !File.Exists(Path.Combine($"{driveLetter}:\\", "VIDEO_TS", "VIDEO_TS.IFO")))
+        {
+            UnfinalizedDvdScanResult? scan = null;
+            bool foundRaw = await Task.Run(() => UnfinalizedDvdReader.TryScanDrive(driveLetter.ToString(), out scan), ct);
+            if (!foundRaw || scan is null)
+                throw new InvalidOperationException(
+                    $"Drive {driveLetter}:\\ does not contain a DVD-Video VIDEO_TS.IFO file or readable raw MPEG-2 video.");
+
+            return await ProbeUnfinalizedDriveAsync(ffprobe, driveLetter.ToString(), scan, ct);
+        }
+
+        ValidateSource(source);
 
         // ffmpeg's dvdvideo demuxer defaults -title 0 to Title 1 (which is often a 0-second
         // dummy/padding title on commercial DVDs). Enumerate titles via libdvdnav first so
@@ -503,6 +529,65 @@ public static class DvdVideoConverter
             string.IsNullOrWhiteSpace(result.StdErr)
                 ? "ffprobe could not read the DVD-Video source."
                 : result.StdErr.Trim());
+    }
+
+    private static async Task<DvdVideoInfo> ProbeUnfinalizedDriveAsync(
+        string ffprobe,
+        string driveLetter,
+        UnfinalizedDvdScanResult scan,
+        CancellationToken ct)
+    {
+        string tempSample = Path.Combine(Path.GetTempPath(), $"cdburner10_unfinalized_probe_{Guid.NewGuid():N}.mpg");
+        try
+        {
+            long sampleBytes = await Task.Run(() =>
+                UnfinalizedDvdReader.ReadSampleToFile(driveLetter, tempSample, scan.FirstMpegSector, 4 * 1024 * 1024, ct), ct);
+            if (sampleBytes <= 0)
+                throw new InvalidOperationException($"Could not read MPEG-2 sample sectors from drive {driveLetter}:\\.");
+
+            var args = new[]
+            {
+                "-v", "error",
+                "-show_entries", "format=duration,bit_rate:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
+                "-of", "json",
+                tempSample
+            };
+            var result = await RunCaptureAsync(ffprobe, args, ct);
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(result.StdErr)
+                        ? "ffprobe could not inspect the raw MPEG-2 stream on the unfinalized DVD."
+                        : result.StdErr.Trim());
+
+            var parsed = ParseProbeJson(result.StdOut);
+            TimeSpan estimatedDuration = parsed.Duration;
+
+            // Estimate full disc duration from sample bitrate and reported used bytes.
+            using var doc = JsonDocument.Parse(result.StdOut);
+            if (scan.EstimatedTotalBytes > 0 &&
+                doc.RootElement.TryGetProperty("format", out var fmt) &&
+                fmt.TryGetProperty("bit_rate", out var brEl) &&
+                double.TryParse(brEl.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double bitRate) &&
+                bitRate > 100_000)
+            {
+                double estSec = scan.EstimatedTotalBytes * 8.0 / bitRate;
+                if (estSec > estimatedDuration.TotalSeconds)
+                    estimatedDuration = TimeSpan.FromSeconds(estSec);
+            }
+
+            return parsed with
+            {
+                Duration = estimatedDuration,
+                TitleNumber = 1,
+                TotalTitles = 1,
+                IsUnfinalizedRaw = true,
+                UnfinalizedScan = scan
+            };
+        }
+        finally
+        {
+            TryDelete(tempSample);
+        }
     }
 
     private static Task<(int ExitCode, string StdOut, string StdErr)> RunFfprobeDvdAsync(
@@ -628,29 +713,38 @@ public static class DvdVideoConverter
         DvdVideoInfo info,
         DvdMp4Options options,
         string? videoEncoderOverride = null,
-        bool isPreWalkedMpegStream = false)
+        bool isPreWalkedMpegStream = false,
+        bool isPipedMpegStream = false)
     {
         var args = new List<string>
         {
-            "-y", "-hide_banner", "-loglevel", "warning", "-nostdin"
+            "-y", "-hide_banner", "-loglevel", "warning"
         };
 
-        if (!isPreWalkedMpegStream)
+        if (isPipedMpegStream)
         {
-            args.AddRange(new[] { "-f", "dvdvideo" });
-            if (info.DisableTrim)
-                args.AddRange(new[] { "-trim", "0" });
-            int effectiveTitle = options.TitleNumber > 0
-                ? options.TitleNumber
-                : (info.TitleNumber > 1 ? info.TitleNumber : 0);
-            if (effectiveTitle > 0)
-            {
-                args.Add("-title");
-                args.Add(Math.Clamp(effectiveTitle, 1, 99).ToString(CultureInfo.InvariantCulture));
-            }
+            args.AddRange(new[] { "-fflags", "+genpts+igndts", "-err_detect", "ignore_err", "-f", "mpeg", "-i", "pipe:0" });
         }
+        else
+        {
+            args.Add("-nostdin");
+            if (!isPreWalkedMpegStream)
+            {
+                args.AddRange(new[] { "-f", "dvdvideo" });
+                if (info.DisableTrim)
+                    args.AddRange(new[] { "-trim", "0" });
+                int effectiveTitle = options.TitleNumber > 0
+                    ? options.TitleNumber
+                    : (info.TitleNumber > 1 ? info.TitleNumber : 0);
+                if (effectiveTitle > 0)
+                {
+                    args.Add("-title");
+                    args.Add(Math.Clamp(effectiveTitle, 1, 99).ToString(CultureInfo.InvariantCulture));
+                }
+            }
 
-        args.AddRange(new[] { "-i", normalizedSource });
+            args.AddRange(new[] { "-i", normalizedSource });
+        }
 
         bool burnSubtitles = options.SubtitleOrdinal is int subIdx &&
                              subIdx >= 0 && subIdx < info.SubtitleTracks.Count;
@@ -807,10 +901,12 @@ public static class DvdVideoConverter
         string? tempWalkedMpg = null;
         string inputForFfmpeg = normalizedSource;
         bool isPreWalked = false;
+        char rawDriveLetter = '\0';
+        bool isPipedUnfinalized = info.IsUnfinalizedRaw && TryExtractDriveLetter(normalizedSource, out rawDriveLetter);
 
         try
         {
-            if (info.UseNavigatedWalker && DvdNavigationWalker.IsAvailable)
+            if (!isPipedUnfinalized && info.UseNavigatedWalker && DvdNavigationWalker.IsAvailable)
             {
                 tempWalkedMpg = Path.Combine(Path.GetTempPath(), $"cdburner10_dvdnav_{Guid.NewGuid():N}.mpg");
                 var walkProgress = new Progress<BurnProgress>(bp =>
@@ -832,13 +928,20 @@ public static class DvdVideoConverter
                 isPreWalked = true;
             }
 
-            var args = BuildFfmpegArguments(inputForFfmpeg, destination, info, options, isPreWalkedMpegStream: isPreWalked);
+            var args = BuildFfmpegArguments(
+                inputForFfmpeg,
+                destination,
+                info,
+                options,
+                isPreWalkedMpegStream: isPreWalked,
+                isPipedMpegStream: isPipedUnfinalized);
 
             var startInfo = new ProcessStartInfo
             {
                 FileName = ffmpeg,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardInput = isPipedUnfinalized,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
@@ -865,6 +968,44 @@ public static class DvdVideoConverter
             }
 
             using CancellationTokenRegistration registration = ct.Register(() => TryKill(process));
+
+            double latestSpeed = 0, latestFps = 0;
+
+            Task pipeFeeder = Task.CompletedTask;
+            if (isPipedUnfinalized)
+            {
+                string dl = rawDriveLetter.ToString();
+                var scan = info.UnfinalizedScan;
+                pipeFeeder = Task.Run(() =>
+                {
+                    var rawProgress = new Progress<BurnProgress>(bp =>
+                    {
+                        progress?.Report(new DvdMp4Progress(
+                            Math.Clamp(bp.Percent, 0, 99),
+                            Volatile.Read(ref latestSpeed),
+                            Volatile.Read(ref latestFps),
+                            bp.TimeRemaining,
+                            bp.Message ?? $"Recovering & converting unfinalized DVD... {bp.Percent}%"));
+                    });
+
+                    try
+                    {
+                        UnfinalizedDvdReader.ReadToStream(dl, process.StandardInput.BaseStream, scan, rawProgress, ct);
+                    }
+                    catch (IOException)
+                    {
+                        // Pipe closed early (e.g. MaxDuration reached or ffmpeg exited).
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Cancelled by user.
+                    }
+                    finally
+                    {
+                        try { process.StandardInput.Close(); } catch { }
+                    }
+                });
+            }
 
             var errorReader = Task.Run(async () =>
             {
@@ -900,13 +1041,16 @@ public static class DvdVideoConverter
                             double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSpeed))
                         {
                             speed = parsedSpeed;
+                            Volatile.Write(ref latestSpeed, parsedSpeed);
                         }
                         else if (key is "fps" &&
                                  double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedFps))
                         {
                             fps = parsedFps;
+                            Volatile.Write(ref latestFps, parsedFps);
                         }
-                        else if (key is "out_time_us" or "out_time_ms" &&
+                        else if (!isPipedUnfinalized &&
+                                 key is "out_time_us" or "out_time_ms" &&
                                  long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var micros))
                         {
                             double rawPercent = Math.Clamp(micros / (totalMs * 1000.0) * 100.0, 0, 100);
@@ -938,12 +1082,12 @@ public static class DvdVideoConverter
             catch (OperationCanceledException)
             {
                 TryKill(process);
-                await Task.WhenAll(errorReader, progressReader);
+                await Task.WhenAll(pipeFeeder, errorReader, progressReader);
                 TryDelete(destination);
                 throw;
             }
 
-            await Task.WhenAll(errorReader, progressReader);
+            await Task.WhenAll(pipeFeeder, errorReader, progressReader);
 
             if (ct.IsCancellationRequested)
             {
