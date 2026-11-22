@@ -1,6 +1,6 @@
-# CDBurner10
+# CDBurner10 dvd archiver and saver
 
-Modernization of **CDBurnerXP 4.5.8** to **.NET 10** and **WinUI 3 (Windows App SDK 1.7)** with full functional parity for optical media authoring, burning, ripping, and ISO tooling.
+Modernization; .NET 10** and **WinUI 3 (Windows App SDK 1.7)** with full functional parity for optical media authoring, burning, ripping, and ISO tooling.
 
 ## Architecture
 
