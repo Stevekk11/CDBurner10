@@ -173,7 +173,7 @@ public sealed partial class DvdToMp4Page : Page
             return;
         }
 
-        string protection = info.IsCssProtected ? " • CSS protected (decrypted directly on the fly)" : string.Empty;
+        string protection = info.IsCssProtected ? " • CSS protected" : string.Empty;
         string unfinalized = info.IsNextSessionAllowed && info.Sessions.Count == 0 && info.UsedSizeBytes > 0
             ? " • Unfinalized disc (raw MPEG-2 recovery supported)"
             : string.Empty;

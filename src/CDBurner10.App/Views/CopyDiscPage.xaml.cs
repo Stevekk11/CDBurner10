@@ -109,7 +109,7 @@ public sealed partial class CopyDiscPage : Page
         {
             int trackCount = info.Sessions.Sum(s => s.Tracks.Count);
             string protection = info.IsCssProtected
-                ? " • CSS protected (decrypted with libdvdcss)"
+                ? " • CSS protected"
                 : string.Empty;
             SourceDiscStatusText.Text = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used • {info.Sessions.Count} session(s), {trackCount} track(s){protection}";
 
