@@ -21,12 +21,16 @@ public sealed partial class CopyDiscPage : Page
     public CopyDiscPage()
     {
         InitializeComponent();
+        NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
         Loaded += CopyDiscPage_Loaded;
         Unloaded += CopyDiscPage_Unloaded;
     }
 
     private void CopyDiscPage_Loaded(object sender, RoutedEventArgs e)
     {
+        AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
+        if (_isBusy) return;
+
         var s = AppServices.Current.Settings.Current;
         IgnoreBadBlocksCheckBox.IsChecked = s.CopyIgnoreUnreadableData;
         DisableHwEcCheckBox.IsChecked = s.CopyDisableHardwareEC;
@@ -36,7 +40,6 @@ public sealed partial class CopyDiscPage : Page
         if (!string.IsNullOrWhiteSpace(s.DataCopyImagePath))
             TargetImagePathBox.Text = s.DataCopyImagePath;
 
-        AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
         PopulateDrives();
     }
 

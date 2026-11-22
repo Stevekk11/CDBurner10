@@ -16,6 +16,7 @@ public sealed partial class EraseDiscPage : Page
     public EraseDiscPage()
     {
         InitializeComponent();
+        NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
         Loaded += EraseDiscPage_Loaded;
         Unloaded += EraseDiscPage_Unloaded;
     }
@@ -23,6 +24,7 @@ public sealed partial class EraseDiscPage : Page
     private void EraseDiscPage_Loaded(object sender, RoutedEventArgs e)
     {
         AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
+        if (_isBusy) return;
         PopulateDrives();
     }
 

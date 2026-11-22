@@ -15,12 +15,13 @@ public sealed partial class ConvertIsoPage : Page
     public ConvertIsoPage()
     {
         InitializeComponent();
+        NavigationCacheMode = NavigationCacheMode.Required;
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.Parameter is string src && !string.IsNullOrWhiteSpace(src))
+        if (!_isBusy && e.Parameter is string src && !string.IsNullOrWhiteSpace(src))
         {
             SourcePathBox.Text = src;
         }

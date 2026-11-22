@@ -19,6 +19,7 @@ public sealed partial class VideoDvdPage : Page
     public VideoDvdPage()
     {
         InitializeComponent();
+        NavigationCacheMode = NavigationCacheMode.Required;
         Loaded += VideoDvdPage_Loaded;
         Unloaded += VideoDvdPage_Unloaded;
     }
@@ -26,7 +27,7 @@ public sealed partial class VideoDvdPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.Parameter is string folder && !string.IsNullOrWhiteSpace(folder))
+        if (!_isBusy && e.Parameter is string folder && !string.IsNullOrWhiteSpace(folder))
         {
             VideoTsPathBox.Text = folder;
         }
@@ -34,6 +35,9 @@ public sealed partial class VideoDvdPage : Page
 
     private void VideoDvdPage_Loaded(object sender, RoutedEventArgs e)
     {
+        AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
+        if (_isBusy) return;
+
         var settings = AppServices.Current.Settings.Current;
         DoubleLayerCheckBox.IsChecked = settings.DoubleLayerCompatible;
         PadDvdCheckBox.IsChecked = settings.PadDvdSize;
@@ -44,7 +48,6 @@ public sealed partial class VideoDvdPage : Page
             VideoTsPathBox.Text = settings.DataVideoLayoutPath;
         }
 
-        AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
         PopulateDrives();
         ValidateFolder();
     }

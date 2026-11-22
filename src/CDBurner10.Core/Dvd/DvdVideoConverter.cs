@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using CDBurner10.Core.Burning;
 
 namespace CDBurner10.Core.Dvd;
 
@@ -32,7 +33,20 @@ public sealed record DvdVideoInfo(
     int Width,
     int Height,
     IReadOnlyList<DvdAudioTrack> AudioTracks,
-    IReadOnlyList<DvdSubtitleTrack> SubtitleTracks);
+    IReadOnlyList<DvdSubtitleTrack> SubtitleTracks)
+{
+    /// <summary>Resolved DVD title number (1..99) selected for probing and conversion.</summary>
+    public int TitleNumber { get; init; } = 1;
+
+    /// <summary>Total number of titles detected on the disc (0 if unknown).</summary>
+    public int TotalTitles { get; init; }
+
+    /// <summary>True when ffmpeg's dvdvideo demuxer needed -trim 0 (padding cells in PGC).</summary>
+    public bool DisableTrim { get; init; }
+
+    /// <summary>True when ffmpeg's dvdvideo demuxer could not open the disc directly and DvdNavigationWalker should walk it first.</summary>
+    public bool UseNavigatedWalker { get; init; }
+}
 
 public enum DvdVideoEncoder
 {
@@ -298,14 +312,15 @@ public static class DvdVideoConverter
     }
 
     /// <summary>
-    /// Normalizes a DVD source: optical drive letters ("E", "E:", "E:\", "\\.\E:") become "E:\",
+    /// Normalizes a DVD source: optical drive letters ("E", "E:", "E:\", "\\.\E:") become "E:"
+    /// (without trailing backslash, which libdvdnav requires on Windows),
     /// VIDEO_TS folders become their parent disc root, and ISO files are returned as full paths.
     /// </summary>
     public static string NormalizeSource(string path)
     {
         string trimmedInput = path.Trim();
         if (TryExtractDriveLetter(trimmedInput, out char driveLetter))
-            return $"{char.ToUpperInvariant(driveLetter)}:\\";
+            return $"{char.ToUpperInvariant(driveLetter)}:";
 
         string full = Path.GetFullPath(trimmedInput);
         if (!Directory.Exists(full)) return full;
@@ -324,7 +339,7 @@ public static class DvdVideoConverter
     public static string GetDriveSourcePath(string driveLetter)
     {
         if (TryExtractDriveLetter(driveLetter, out char letter))
-            return $"{char.ToUpperInvariant(letter)}:\\";
+            return $"{char.ToUpperInvariant(letter)}:";
         throw new ArgumentException($"Invalid optical drive letter '{driveLetter}'.", nameof(driveLetter));
     }
 
@@ -384,6 +399,14 @@ public static class DvdVideoConverter
             throw new InvalidOperationException("Select an optical drive, a DVD-Video ISO file, or a VIDEO_TS folder.");
 
         string normalized = NormalizeSource(source);
+        if (TryExtractDriveLetter(normalized, out char letter))
+        {
+            string driveRoot = $"{letter}:\\";
+            if (File.Exists(Path.Combine(driveRoot, "VIDEO_TS", "VIDEO_TS.IFO")))
+                return;
+            throw new InvalidOperationException($"Drive {driveRoot} does not contain a DVD-Video VIDEO_TS.IFO file.");
+        }
+
         if (File.Exists(normalized)) return;
 
         if (Directory.Exists(normalized))
@@ -406,12 +429,98 @@ public static class DvdVideoConverter
     {
         ValidateSource(source);
         string ffprobe = FindFfprobe() ?? throw new InvalidOperationException(InstallHint);
+        string normalized = NormalizeSource(source);
 
+        // ffmpeg's dvdvideo demuxer defaults -title 0 to Title 1 (which is often a 0-second
+        // dummy/padding title on commercial DVDs). Enumerate titles via libdvdnav first so
+        // auto-selection reliably picks the true longest title.
+        int resolvedTitle = titleNumber;
+        IReadOnlyList<DvdTitleInfo>? navTitles = null;
+        if (DvdNavigationWalker.IsAvailable)
+        {
+            try
+            {
+                navTitles = await Task.Run(() => DvdNavigationWalker.EnumerateTitles(normalized), ct);
+                if (navTitles.Count > 0 && resolvedTitle <= 0)
+                {
+                    resolvedTitle = DvdNavigationWalker.SelectMainTitle(navTitles).TitleNumber;
+                }
+            }
+            catch
+            {
+                // Continue with ffprobe if libdvdnav enumeration is unavailable for this source.
+            }
+        }
+
+        int totalTitles = navTitles?.Count ?? 0;
+        var result = await RunFfprobeDvdAsync(ffprobe, normalized, resolvedTitle, disableTrim: false, ct);
+        if (result.ExitCode == 0)
+        {
+            return ParseProbeJson(result.StdOut) with
+            {
+                TitleNumber = resolvedTitle > 0 ? resolvedTitle : 1,
+                TotalTitles = totalTitles
+            };
+        }
+
+        // Retry with -trim 0 when ffmpeg reports padding cells ("looks empty" / "-trim").
+        if (NeedsTrimDisabled(result.StdErr))
+        {
+            var retry = await RunFfprobeDvdAsync(ffprobe, normalized, resolvedTitle, disableTrim: true, ct);
+            if (retry.ExitCode == 0)
+            {
+                return ParseProbeJson(retry.StdOut) with
+                {
+                    TitleNumber = resolvedTitle > 0 ? resolvedTitle : 1,
+                    TotalTitles = totalTitles,
+                    DisableTrim = true
+                };
+            }
+            result = retry;
+        }
+
+        // Fallback: use our native libdvdnav walker when ffmpeg's dvdvideo demuxer cannot read the disc.
+        if (navTitles is { Count: > 0 })
+        {
+            var selected = resolvedTitle > 0
+                ? navTitles.FirstOrDefault(t => t.TitleNumber == resolvedTitle) ?? DvdNavigationWalker.SelectMainTitle(navTitles)
+                : DvdNavigationWalker.SelectMainTitle(navTitles);
+            return new DvdVideoInfo(
+                selected.Duration,
+                720,
+                576,
+                [new DvdAudioTrack(0, 0, "ac3", 2, null, "Default audio")],
+                [])
+            {
+                TitleNumber = selected.TitleNumber,
+                TotalTitles = totalTitles,
+                UseNavigatedWalker = true
+            };
+        }
+
+        throw new InvalidOperationException(
+            string.IsNullOrWhiteSpace(result.StdErr)
+                ? "ffprobe could not read the DVD-Video source."
+                : result.StdErr.Trim());
+    }
+
+    private static Task<(int ExitCode, string StdOut, string StdErr)> RunFfprobeDvdAsync(
+        string ffprobe,
+        string normalizedSource,
+        int titleNumber,
+        bool disableTrim,
+        CancellationToken ct)
+    {
         var args = new List<string>
         {
             "-v", "error",
             "-f", "dvdvideo"
         };
+        if (disableTrim)
+        {
+            args.Add("-trim");
+            args.Add("0");
+        }
         if (titleNumber > 0)
         {
             args.Add("-title");
@@ -422,18 +531,17 @@ public static class DvdVideoConverter
         {
             "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
             "-of", "json",
-            NormalizeSource(source)
+            normalizedSource
         });
 
-        var result = await RunCaptureAsync(ffprobe, args, ct);
-        if (result.ExitCode != 0)
-            throw new InvalidOperationException(
-                string.IsNullOrWhiteSpace(result.StdErr)
-                    ? "ffprobe could not read the DVD-Video source."
-                    : result.StdErr.Trim());
-
-        return ParseProbeJson(result.StdOut);
+        return RunCaptureAsync(ffprobe, args, ct);
     }
+
+    private static bool NeedsTrimDisabled(string? stderr) =>
+        !string.IsNullOrWhiteSpace(stderr) &&
+        (stderr.Contains("-trim", StringComparison.OrdinalIgnoreCase) ||
+         stderr.Contains("looks empty", StringComparison.OrdinalIgnoreCase) ||
+         stderr.Contains("padding cells", StringComparison.OrdinalIgnoreCase));
 
     internal static DvdVideoInfo ParseProbeJson(string json)
     {
@@ -518,18 +626,27 @@ public static class DvdVideoConverter
         string destination,
         DvdVideoInfo info,
         DvdMp4Options options,
-        string? videoEncoderOverride = null)
+        string? videoEncoderOverride = null,
+        bool isPreWalkedMpegStream = false)
     {
         var args = new List<string>
         {
-            "-y", "-hide_banner", "-loglevel", "warning", "-nostdin",
-            "-f", "dvdvideo"
+            "-y", "-hide_banner", "-loglevel", "warning", "-nostdin"
         };
 
-        if (options.TitleNumber > 0)
+        if (!isPreWalkedMpegStream)
         {
-            args.Add("-title");
-            args.Add(Math.Clamp(options.TitleNumber, 1, 99).ToString(CultureInfo.InvariantCulture));
+            args.AddRange(new[] { "-f", "dvdvideo" });
+            if (info.DisableTrim)
+                args.AddRange(new[] { "-trim", "0" });
+            int effectiveTitle = options.TitleNumber > 0
+                ? options.TitleNumber
+                : (info.TitleNumber > 1 ? info.TitleNumber : 0);
+            if (effectiveTitle > 0)
+            {
+                args.Add("-title");
+                args.Add(Math.Clamp(effectiveTitle, 1, 99).ToString(CultureInfo.InvariantCulture));
+            }
         }
 
         args.AddRange(new[] { "-i", normalizedSource });
@@ -686,128 +803,165 @@ public static class DvdVideoConverter
         string? directory = Path.GetDirectoryName(destination);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
 
-        var args = BuildFfmpegArguments(normalizedSource, destination, info, options);
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = ffmpeg,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        foreach (var arg in args) startInfo.ArgumentList.Add(arg);
-
-        using var process = new Process { StartInfo = startInfo };
-        var errors = new ConcurrentQueue<string>();
-        double effectiveDurationMs = info.Duration.TotalMilliseconds;
-        if (options.MaxDuration is TimeSpan maxDur && maxDur > TimeSpan.Zero)
-        {
-            effectiveDurationMs = effectiveDurationMs > 0
-                ? Math.Min(effectiveDurationMs, maxDur.TotalMilliseconds)
-                : maxDur.TotalMilliseconds;
-        }
-        var totalMs = Math.Max(1, effectiveDurationMs);
+        string? tempWalkedMpg = null;
+        string inputForFfmpeg = normalizedSource;
+        bool isPreWalked = false;
 
         try
         {
-            process.Start();
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Could not start ffmpeg: {ex.Message}", ex);
-        }
+            if (info.UseNavigatedWalker && DvdNavigationWalker.IsAvailable)
+            {
+                tempWalkedMpg = Path.Combine(Path.GetTempPath(), $"cdburner10_dvdnav_{Guid.NewGuid():N}.mpg");
+                var walkProgress = new Progress<BurnProgress>(bp =>
+                {
+                    int mapped = Math.Clamp(bp.Percent / 2, 0, 50);
+                    progress?.Report(new DvdMp4Progress(
+                        mapped,
+                        0,
+                        0,
+                        bp.TimeRemaining,
+                        bp.Message ?? $"Reading DVD via libdvdnav... {bp.Percent}%"));
+                });
 
-        using CancellationTokenRegistration registration = ct.Register(() => TryKill(process));
+                int walkTitle = options.TitleNumber > 0 ? options.TitleNumber : info.TitleNumber;
+                await Task.Run(() =>
+                    DvdNavigationWalker.WalkTitleToFile(normalizedSource, tempWalkedMpg, walkTitle, walkProgress, ct), ct);
 
-        var errorReader = Task.Run(async () =>
-        {
+                inputForFfmpeg = tempWalkedMpg;
+                isPreWalked = true;
+            }
+
+            var args = BuildFfmpegArguments(inputForFfmpeg, destination, info, options, isPreWalkedMpegStream: isPreWalked);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            foreach (var arg in args) startInfo.ArgumentList.Add(arg);
+
+            using var process = new Process { StartInfo = startInfo };
+            var errors = new ConcurrentQueue<string>();
+            double effectiveDurationMs = info.Duration.TotalMilliseconds;
+            if (options.MaxDuration is TimeSpan maxDur && maxDur > TimeSpan.Zero)
+            {
+                effectiveDurationMs = effectiveDurationMs > 0
+                    ? Math.Min(effectiveDurationMs, maxDur.TotalMilliseconds)
+                    : maxDur.TotalMilliseconds;
+            }
+            var totalMs = Math.Max(1, effectiveDurationMs);
+
             try
             {
-                while (await process.StandardError.ReadLineAsync() is { } line)
-                {
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    errors.Enqueue(line);
-                    while (errors.Count > 40 && errors.TryDequeue(out _)) { }
-                }
+                process.Start();
             }
-            catch
+            catch (Exception ex)
             {
-                // The stream closes when ffmpeg is cancelled or exits.
+                throw new InvalidOperationException($"Could not start ffmpeg: {ex.Message}", ex);
             }
-        });
 
-        var progressReader = Task.Run(async () =>
-        {
+            using CancellationTokenRegistration registration = ct.Register(() => TryKill(process));
+
+            var errorReader = Task.Run(async () =>
+            {
+                try
+                {
+                    while (await process.StandardError.ReadLineAsync() is { } line)
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        errors.Enqueue(line);
+                        while (errors.Count > 40 && errors.TryDequeue(out _)) { }
+                    }
+                }
+                catch
+                {
+                    // The stream closes when ffmpeg is cancelled or exits.
+                }
+            });
+
+            var progressReader = Task.Run(async () =>
+            {
+                try
+                {
+                    double speed = 0, fps = 0;
+                    while (await process.StandardOutput.ReadLineAsync() is { } line)
+                    {
+                        int separator = line.IndexOf('=');
+                        if (separator <= 0) continue;
+                        string key = line[..separator];
+                        string value = line[(separator + 1)..];
+
+                        if (key is "speed" && value.EndsWith('x') &&
+                            double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSpeed))
+                        {
+                            speed = parsedSpeed;
+                        }
+                        else if (key is "fps" &&
+                                 double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedFps))
+                        {
+                            fps = parsedFps;
+                        }
+                        else if (key is "out_time_us" or "out_time_ms" &&
+                                 long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var micros))
+                        {
+                            double rawPercent = Math.Clamp(micros / (totalMs * 1000.0) * 100.0, 0, 100);
+                            int displayPercent = isPreWalked
+                                ? (int)Math.Clamp(50 + rawPercent * 0.5, 50, 100)
+                                : (int)rawPercent;
+                            double remainingSeconds = speed > 0
+                                ? Math.Max(0, (totalMs - micros / 1000.0) / 1000.0 / speed)
+                                : 0;
+                            progress?.Report(new DvdMp4Progress(
+                                displayPercent,
+                                speed,
+                                fps,
+                                TimeSpan.FromSeconds(remainingSeconds),
+                                $"Converting to MP4... {displayPercent}%"));
+                        }
+                    }
+                }
+                catch
+                {
+                    // The stream closes when ffmpeg is cancelled or exits.
+                }
+            });
+
             try
             {
-                double speed = 0, fps = 0;
-                while (await process.StandardOutput.ReadLineAsync() is { } line)
-                {
-                    int separator = line.IndexOf('=');
-                    if (separator <= 0) continue;
-                    string key = line[..separator];
-                    string value = line[(separator + 1)..];
-
-                    if (key is "speed" && value.EndsWith('x') &&
-                        double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSpeed))
-                    {
-                        speed = parsedSpeed;
-                    }
-                    else if (key is "fps" &&
-                             double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedFps))
-                    {
-                        fps = parsedFps;
-                    }
-                    else if (key is "out_time_us" or "out_time_ms" &&
-                             long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var micros))
-                    {
-                        double percent = Math.Clamp(micros / (totalMs * 1000.0) * 100.0, 0, 100);
-                        double remainingSeconds = speed > 0
-                            ? Math.Max(0, (totalMs - micros / 1000.0) / 1000.0 / speed)
-                            : 0;
-                        progress?.Report(new DvdMp4Progress(
-                            (int)percent,
-                            speed,
-                            fps,
-                            TimeSpan.FromSeconds(remainingSeconds),
-                            $"Converting to MP4... {(int)percent}%"));
-                    }
-                }
+                await process.WaitForExitAsync(ct);
             }
-            catch
+            catch (OperationCanceledException)
             {
-                // The stream closes when ffmpeg is cancelled or exits.
+                TryKill(process);
+                await Task.WhenAll(errorReader, progressReader);
+                TryDelete(destination);
+                throw;
             }
-        });
 
-        try
-        {
-            await process.WaitForExitAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            TryKill(process);
             await Task.WhenAll(errorReader, progressReader);
-            TryDelete(destination);
-            throw;
+
+            if (ct.IsCancellationRequested)
+            {
+                TryDelete(destination);
+                throw new OperationCanceledException(ct);
+            }
+
+            if (process.ExitCode != 0)
+            {
+                TryDelete(destination);
+                string message = errors.IsEmpty
+                    ? $"ffmpeg exited with code {process.ExitCode}."
+                    : string.Join(Environment.NewLine, errors);
+                throw new InvalidOperationException($"MP4 conversion failed:{Environment.NewLine}{message}");
+            }
         }
-
-        await Task.WhenAll(errorReader, progressReader);
-
-        if (ct.IsCancellationRequested)
+        finally
         {
-            TryDelete(destination);
-            throw new OperationCanceledException(ct);
-        }
-
-        if (process.ExitCode != 0)
-        {
-            TryDelete(destination);
-            string message = errors.IsEmpty
-                ? $"ffmpeg exited with code {process.ExitCode}."
-                : string.Join(Environment.NewLine, errors);
-            throw new InvalidOperationException($"MP4 conversion failed:{Environment.NewLine}{message}");
+            if (!string.IsNullOrEmpty(tempWalkedMpg))
+                TryDelete(tempWalkedMpg);
         }
     }
 

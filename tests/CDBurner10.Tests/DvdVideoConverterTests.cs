@@ -172,10 +172,10 @@ public sealed class DvdVideoConverterTests
     }
 
     [Theory]
-    [InlineData("E", @"E:\")]
-    [InlineData("e:", @"E:\")]
-    [InlineData(@"E:\", @"E:\")]
-    [InlineData(@"\\.\e:", @"E:\")]
+    [InlineData("E", "E:")]
+    [InlineData("e:", "E:")]
+    [InlineData(@"E:\", "E:")]
+    [InlineData(@"\\.\e:", "E:")]
     public void NormalizeSource_NormalizesOpticalDrivePaths(string input, string expected)
     {
         Assert.Equal(expected, DvdVideoConverter.NormalizeSource(input));

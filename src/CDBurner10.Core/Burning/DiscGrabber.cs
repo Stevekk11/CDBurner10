@@ -3,6 +3,12 @@ using RocketDivision.StarBurnX;
 
 namespace CDBurner10.Core.Burning;
 
+public enum DiscReadMode
+{
+    Linear,
+    Navigated
+}
+
 public sealed record GrabTrackInfo(string FileName, bool IsAudio, int TrackSizeLB);
 
 public sealed class GrabOptions
@@ -17,10 +23,21 @@ public sealed class GrabOptions
     public bool IsDvdVideo { get; init; } = false;
 
     /// <summary>
-    /// When the source is a CSS-protected DVD, read it through libdvdcss and
-    /// write a decrypted ISO instead of copying scrambled sectors.
+    /// When the source is a CSS-protected DVD in Linear mode, read it through
+    /// libdvdcss and write a decrypted ISO instead of copying scrambled sectors.
     /// </summary>
     public bool DecryptCss { get; init; } = true;
+
+    /// <summary>
+    /// Selects Linear sector reading vs. libdvdnav Navigated playback-path walking.
+    /// When null, DVD-Video discs (detected via VIDEO_TS presence) default to Navigated.
+    /// </summary>
+    public DiscReadMode? ReadMode { get; init; }
+
+    /// <summary>
+    /// Target DVD title number for Navigated mode (0 = automatically select longest title).
+    /// </summary>
+    public int TargetTitle { get; init; } = 0;
 }
 
 public sealed class DiscGrabber
@@ -29,6 +46,39 @@ public sealed class DiscGrabber
     private bool _isCancelled;
 
     public bool IsCancelled => _isCancelled;
+
+    public static DiscReadMode ResolveReadMode(GrabOptions options)
+    {
+        if (options.ReadMode.HasValue)
+            return options.ReadMode.Value;
+
+        bool isDvdVideo = options.IsDvdVideo || DvdNavigationWalker.IsDvdVideoDrive(options.Drive);
+        return isDvdVideo && DvdNavigationWalker.IsAvailable
+            ? DiscReadMode.Navigated
+            : DiscReadMode.Linear;
+    }
+
+    public Task<DvdWalkResult> GrabNavigatedStreamAsync(
+        DriveModel drive,
+        Stream output,
+        int targetTitle = 0,
+        IProgress<BurnProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        return Task.Run(() =>
+        {
+            _isCancelled = false;
+            if (string.IsNullOrWhiteSpace(drive.Letter))
+                throw new InvalidOperationException("The selected drive does not report a drive letter.");
+
+            return DvdNavigationWalker.WalkTitleToStream(
+                drive.Letter,
+                output,
+                targetTitle,
+                progress,
+                ct);
+        }, ct);
+    }
 
     public Task GrabDiscAsync(
         GrabOptions options,
@@ -42,6 +92,36 @@ public sealed class DiscGrabber
 
             var dir = Path.GetDirectoryName(options.TargetPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            var readMode = ResolveReadMode(options);
+            if (readMode == DiscReadMode.Navigated)
+            {
+                if (string.IsNullOrWhiteSpace(options.Drive.Letter))
+                    throw new InvalidOperationException("The selected drive does not report a drive letter for libdvdnav.");
+
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Grabbing,
+                    0,
+                    Message: "DVD-Video detected — walking disc navigation program with libdvdnav..."));
+
+                try
+                {
+                    DvdNavigationWalker.WalkTitleToFile(
+                        options.Drive.Letter,
+                        options.TargetPath,
+                        options.TargetTitle,
+                        progress,
+                        ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { File.Delete(options.TargetPath); } catch { }
+                    progress?.Report(new BurnProgress(BurnPhase.Cancelled, 0, Message: "Grab cancelled."));
+                    return;
+                }
+
+                return;
+            }
 
             var disc = options.DecryptCss
                 ? GetDiscProtection(options.Drive)

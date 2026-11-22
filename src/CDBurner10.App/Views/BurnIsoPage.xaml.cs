@@ -20,6 +20,7 @@ public sealed partial class BurnIsoPage : Page
     public BurnIsoPage()
     {
         InitializeComponent();
+        NavigationCacheMode = NavigationCacheMode.Required;
         Loaded += BurnIsoPage_Loaded;
         Unloaded += BurnIsoPage_Unloaded;
     }
@@ -27,7 +28,7 @@ public sealed partial class BurnIsoPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.Parameter is string path && !string.IsNullOrWhiteSpace(path))
+        if (!_isBusy && e.Parameter is string path && !string.IsNullOrWhiteSpace(path))
         {
             _navigatedPath = path;
             IsoPathBox.Text = path;
@@ -36,6 +37,9 @@ public sealed partial class BurnIsoPage : Page
 
     private void BurnIsoPage_Loaded(object sender, RoutedEventArgs e)
     {
+        AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
+        if (_isBusy) return;
+
         var s = AppServices.Current.Settings.Current;
         FinalizeCheckBox.IsChecked = s.IsoFinalize;
         EjectCheckBox.IsChecked = s.IsoEjectDisc;
@@ -48,7 +52,6 @@ public sealed partial class BurnIsoPage : Page
             IsoPathBox.Text = s.LastUsedIsoPath;
         }
 
-        AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
         PopulateDrives();
         UpdateImageInfo();
     }

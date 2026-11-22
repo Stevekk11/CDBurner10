@@ -19,6 +19,7 @@ public sealed partial class DvdToMp4Page : Page
     private CancellationTokenSource? _probeCts;
     private DvdVideoInfo? _info;
     private bool _isBusy;
+    private bool _initialized;
     private bool _navigatedWithFile;
     private string _lastOutput = string.Empty;
     private string? _autoDestination;
@@ -26,6 +27,7 @@ public sealed partial class DvdToMp4Page : Page
     public DvdToMp4Page()
     {
         InitializeComponent();
+        NavigationCacheMode = NavigationCacheMode.Required;
         Loaded += DvdToMp4Page_Loaded;
         Unloaded += DvdToMp4Page_Unloaded;
     }
@@ -35,7 +37,7 @@ public sealed partial class DvdToMp4Page : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        if (e.Parameter is string source && !string.IsNullOrWhiteSpace(source))
+        if (!_isBusy && e.Parameter is string source && !string.IsNullOrWhiteSpace(source))
         {
             _navigatedWithFile = true;
             SourceModeRadio.SelectedIndex = 1;
@@ -46,15 +48,20 @@ public sealed partial class DvdToMp4Page : Page
     private async void DvdToMp4Page_Loaded(object sender, RoutedEventArgs e)
     {
         AppServices.Current.DrivesRefreshed += OnDrivesRefreshed;
-        PopulateDrives();
+        if (_isBusy) return;
 
-        if (!_navigatedWithFile)
+        if (!_initialized)
         {
-            SourceModeRadio.SelectedIndex = AppServices.Current.Drives.Count > 0 ? 0 : 1;
-        }
-        UpdateSourceModeUi();
+            _initialized = true;
+            PopulateDrives();
 
-        await RefreshFfmpegStatusAsync();
+            if (!_navigatedWithFile)
+            {
+                SourceModeRadio.SelectedIndex = AppServices.Current.Drives.Count > 0 ? 0 : 1;
+            }
+            UpdateSourceModeUi();
+            await RefreshFfmpegStatusAsync();
+        }
     }
 
     private void DvdToMp4Page_Unloaded(object sender, RoutedEventArgs e)
@@ -305,7 +312,11 @@ public sealed partial class DvdToMp4Page : Page
 
             _info = info;
             PopulateTracks(info);
-            string titleLabel = titleNumber > 0 ? $"Title {titleNumber}" : "Main title";
+            string titleLabel = titleNumber > 0
+                ? $"Title {info.TitleNumber}"
+                : info.TotalTitles > 1
+                    ? $"Main title (Title {info.TitleNumber} of {info.TotalTitles})"
+                    : $"Main title (Title {info.TitleNumber})";
             DvdInfoText.Text =
                 $"{titleLabel}: {FormatHelper.FormatDuration(info.Duration)} • {info.Width}×{info.Height} • " +
                 $"{info.AudioTracks.Count} audio track(s) • {info.SubtitleTracks.Count} subtitle track(s)";

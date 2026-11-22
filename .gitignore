@@ -4,6 +4,7 @@ obj/
 deploy/
 TestResults/
 *.zip
+third_party/
 
 # Visual Studio / Rider / VS Code
 .vs/
