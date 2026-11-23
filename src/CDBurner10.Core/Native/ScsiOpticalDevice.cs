@@ -1170,4 +1170,188 @@ internal static class ScsiOpticalDevice
 
         return (44, Math.Max(0, fs.Length - 44));
     }
+
+    // =========================================================================
+    // Pure-C# MMC-3/5 Audio CD Track-at-Once (TAO) — Supports Multi-Session CD-R!
+    // =========================================================================
+
+    public static void BurnAudioTao(
+        string driveLetter,
+        IReadOnlyList<string> wavPaths,
+        bool finalizeDisc,
+        bool testBurn,
+        int writeSpeedKBps,
+        IProgress<BurnProgress>? progress,
+        CancellationToken ct)
+    {
+        if (wavPaths.Count == 0)
+            throw new InvalidOperationException("No audio tracks provided for TAO burn.");
+
+        var trackBounds = new List<(string Path, long DataOffset, long DataLength, int Sectors)>(wavPaths.Count);
+        long totalSectors = 0;
+        foreach (var path in wavPaths)
+        {
+            var (offset, length) = ReadWavPcmBounds(path);
+            int sectors = (int)((length + AudioSectorSize - 1) / AudioSectorSize);
+            if (sectors < 300) sectors = 300; // Red Book minimum 4 seconds per track
+            trackBounds.Add((path, offset, length, sectors));
+            totalSectors += sectors;
+        }
+
+        using var handle = OpenDrive(driveLetter, writeAccess: true);
+        if (handle.IsInvalid)
+            throw new IOException($"Could not open drive {driveLetter}: for Audio TAO burning.");
+
+        SetTrayLock(driveLetter, true);
+        try
+        {
+            if (writeSpeedKBps > 0)
+                SetReadWriteSpeed(handle, 0, writeSpeedKBps);
+
+            // 1. Configure Mode Page 0x05 (Write Parameters) for TAO (WriteType = 0x01)
+            ConfigureTaoWriteParameters(handle, finalizeDisc, testBurn);
+
+            const int chunkSectors = 26;
+            var writeBuf = new byte[chunkSectors * AudioSectorSize];
+            long writtenSectors = 0;
+            var sw = Stopwatch.StartNew();
+
+            for (int i = 0; i < trackBounds.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var tb = trackBounds[i];
+
+                // Query Next Writable Address (NWA) for the invisible/open track (0xFF)
+                int currentLba = QueryNextWritableAddress(handle);
+
+                using var fs = new FileStream(tb.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs.Seek(tb.DataOffset, SeekOrigin.Begin);
+
+                int remainingTrackSectors = tb.Sectors;
+                long remainingPcmBytes = tb.DataLength;
+
+                while (remainingTrackSectors > 0)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int batch = Math.Min(chunkSectors, remainingTrackSectors);
+                    int batchBytes = batch * AudioSectorSize;
+                    Array.Clear(writeBuf, 0, batchBytes);
+
+                    int toReadFromFile = (int)Math.Min(batchBytes, remainingPcmBytes);
+                    int filled = 0;
+                    while (filled < toReadFromFile)
+                    {
+                        int r = fs.Read(writeBuf, filled, toReadFromFile - filled);
+                        if (r <= 0) break;
+                        filled += r;
+                    }
+                    remainingPcmBytes -= filled;
+
+                    WriteAudioSectors10(handle, currentLba, batch, writeBuf);
+                    currentLba += batch;
+                    remainingTrackSectors -= batch;
+                    writtenSectors += batch;
+
+                    int pct = (int)Math.Clamp(writtenSectors * 100L / Math.Max(1, totalSectors), 0, 100);
+                    TimeSpan eta = writtenSectors > 0 && sw.Elapsed.TotalSeconds > 0.5
+                        ? TimeSpan.FromSeconds((totalSectors - writtenSectors) / (writtenSectors / sw.Elapsed.TotalSeconds))
+                        : TimeSpan.Zero;
+
+                    progress?.Report(new BurnProgress(
+                        BurnPhase.Burning,
+                        pct,
+                        100,
+                        eta,
+                        i + 1,
+                        trackBounds.Count,
+                        $"Burning audio track {i + 1}/{trackBounds.Count} (TAO)... {pct}%"));
+                }
+
+                // Flush drive cache and close track
+                byte[] syncCdb = [0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+                SendScsiCommand(handle, syncCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 120, out _, out _, out _);
+
+                if (!testBurn)
+                {
+                    // CLOSE TRACK/SESSION (0x5B), CloseFunction = 0x01 (Close Track), Track = 0xFF (invisible)
+                    byte[] closeTrackCdb = [0x5B, 0x00, 0x01, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00];
+                    SendScsiCommand(handle, closeTrackCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 120, out _, out _, out _);
+                    WaitForDriveReady(handle, ct);
+                }
+            }
+
+            if (!testBurn)
+            {
+                progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, 100, Message: "Closing audio session..."));
+                // CLOSE TRACK/SESSION (0x5B), CloseFunction = 0x02 (Close Session)
+                byte[] closeSessionCdb = [0x5B, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+                SendScsiCommand(handle, closeSessionCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 180, out _, out _, out _);
+                WaitForDriveReady(handle, ct);
+            }
+        }
+        finally
+        {
+            SetTrayLock(driveLetter, false);
+        }
+    }
+
+    private static void ConfigureTaoWriteParameters(SafeFileHandle handle, bool finalizeDisc, bool testBurn)
+    {
+        var buf = new byte[64];
+        byte[] senseCdb = [0x5A, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)buf.Length, 0x00];
+        if (!SendScsiCommand(handle, senseCdb, buf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
+            throw new IOException("Drive does not support MMC Write Parameters mode page (0x05).");
+
+        int blockDescLen = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(6, 2));
+        int pageOff = 8 + blockDescLen;
+        int pageLen = buf[pageOff + 1] + 2;
+        int totalLen = 8 + pageLen;
+
+        var modeSelectBuf = new byte[totalLen];
+        Array.Copy(buf, pageOff, modeSelectBuf, 8, pageLen);
+        modeSelectBuf[8] &= 0x3F; // Clear PS bit
+        // Byte +2: BUFE (0x40) | TestWrite (0x10) | WriteType = 0x01 (TAO)
+        modeSelectBuf[8 + 2] = (byte)(0x40 | (testBurn ? 0x10 : 0x00) | 0x01);
+        // Byte +3: Multi-Session (bits 7..6): 0xC0 = next session allowed, 0x00 = finalized | TrackMode = 0x00 (2-ch audio)
+        modeSelectBuf[8 + 3] = (byte)(finalizeDisc ? 0x00 : 0xC0);
+        // Byte +4: DataBlockType = 0x00 (Raw 2352-byte audio)
+        modeSelectBuf[8 + 4] = 0x00;
+        // Byte +8: SessionFormat = 0x00 (CD-DA)
+        modeSelectBuf[8 + 8] = 0x00;
+
+        byte[] selectCdb = [0x55, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)(totalLen >> 8), (byte)(totalLen & 0xFF), 0x00];
+        if (!SendScsiCommand(handle, selectCdb, modeSelectBuf, SCSI_IOCTL_DATA_OUT, 15, out byte sk, out byte asc, out byte ascq))
+            throw new IOException($"Failed to set TAO write parameters (Sense {sk:X2}/{asc:X2}/{ascq:X2}).");
+    }
+
+    private static int QueryNextWritableAddress(SafeFileHandle handle)
+    {
+        var tiBuf = new byte[36];
+        // READ TRACK INFORMATION (0x52), Address/Number Type = 1, Track = 0xFF (invisible/open track)
+        byte[] tiCdb = [0x52, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, (byte)tiBuf.Length, 0x00];
+        if (!SendScsiCommand(handle, tiCdb, tiBuf, SCSI_IOCTL_DATA_IN, 10, out byte sk, out byte asc, out byte ascq))
+            throw new IOException($"Unable to query Next Writable Address on disc (Sense {sk:X2}/{asc:X2}/{ascq:X2}).");
+
+        bool nwaValid = (tiBuf[7] & 0x01) != 0;
+        if (nwaValid)
+        {
+            return (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(12, 4));
+        }
+        return (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(8, 4));
+    }
+
+    private static void WaitForDriveReady(SafeFileHandle handle, CancellationToken ct)
+    {
+        byte[] turCdb = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        for (int attempt = 0; attempt < 300; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (SendScsiCommand(handle, turCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 10, out byte sk, out byte asc, out _))
+                return;
+            // Sense 02/04 = Logical Unit Not Ready, Operation in Progress
+            if (sk != 0x02 && sk != 0x06)
+                return;
+            Thread.Sleep(500);
+        }
+    }
 }

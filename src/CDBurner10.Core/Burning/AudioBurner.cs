@@ -140,8 +140,32 @@ public sealed class AudioBurner
             tao = Imapi2Interop.CreateDiscFormat2TrackAtOnce();
             if (!tao.IsRecorderSupported(recorder))
                 throw new InvalidOperationException($"Drive '{options.Drive.DisplayName}' does not support Audio CD burning.");
+
             if (!tao.IsCurrentMediaSupported(recorder))
+            {
+                // IMAPI2 TrackAtOnce only supports blank CD-R/CD-RW discs.
+                // If an open multi-session CD-R/CD-RW is inserted, fall back to direct SPTI MMC TAO burning!
+                var discInfo = options.Drive.GetDiscInfo(refresh: false);
+                if (discInfo.HasDisc && discInfo.IsCd && discInfo.IsNextSessionAllowed && !string.IsNullOrWhiteSpace(options.Drive.Letter))
+                {
+                    Imapi2Interop.SafeRelease(tao);
+                    tao = null;
+                    Imapi2Interop.SafeRelease(recorder);
+                    recorder = null;
+
+                    ScsiOpticalDevice.BurnAudioTao(
+                        options.Drive.Letter,
+                        wavPaths,
+                        options.FinalizeDisc,
+                        options.TestBurn,
+                        options.WriteSpeedKBps,
+                        progress,
+                        ct);
+                    return;
+                }
+
                 throw new InvalidOperationException("No writable CD-R/CD-RW disc detected in the selected drive.");
+            }
 
             tao.put_Recorder(recorder);
             tao.put_ClientName("CDBurner10");

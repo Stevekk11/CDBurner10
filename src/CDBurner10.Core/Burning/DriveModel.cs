@@ -290,11 +290,13 @@ public sealed class DriveModel
                 }
 
                 int status = format.CurrentMediaStatus;
-                if ((status & Imapi2Interop.MediaStateFinalized) != 0)
+                if ((status & Imapi2Interop.MediaStateFinalized) != 0 && freeBytes == 0)
                 {
                     isFinalized = true;
                 }
-                else if ((status & Imapi2Interop.MediaStateAppendable) != 0 || (status & Imapi2Interop.MediaStateBlank) != 0)
+                else if ((status & Imapi2Interop.MediaStateAppendable) != 0 ||
+                         (status & Imapi2Interop.MediaStateBlank) != 0 ||
+                         freeBytes > 0)
                 {
                     isFinalized = false;
                 }
