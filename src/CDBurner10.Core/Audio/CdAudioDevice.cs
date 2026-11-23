@@ -225,14 +225,15 @@ public static class CdAudioDevice
         int trackNumber1Based,
         string outputWavPath,
         IProgress<double>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        int readSpeedKBps = 0)
     {
         var dir = Path.GetDirectoryName(outputWavPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
         using var wav = new WavWriter(outputWavPath, sampleRate: 44100, channels: 2, bitsPerSample: 16);
         using var adapter = new WavWriterStream(wav);
-        ReadAudioTrackPcm(driveLetter, trackNumber1Based, adapter, progress, ct);
+        ReadAudioTrackPcm(driveLetter, trackNumber1Based, adapter, progress, ct, readSpeedKBps);
     }
 
     private sealed class WavWriterStream(WavWriter writer) : Stream
@@ -257,12 +258,14 @@ public static class CdAudioDevice
         int trackNumber1Based,
         Stream pcmOutput,
         IProgress<double>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        int readSpeedKBps = 0)
     {
         if (string.IsNullOrWhiteSpace(driveLetter))
             throw new ArgumentException("Drive letter is required.", nameof(driveLetter));
 
         char letter = char.ToUpperInvariant(driveLetter.Trim()[0]);
+        CDBurner10.Core.Native.ScsiOpticalDevice.TrySetReadSpeed(letter.ToString(), readSpeedKBps);
         using var handle = OpenDevice(letter);
         if (handle.IsInvalid)
             throw new IOException($"Could not open optical drive {letter}: for CD-DA reading.");

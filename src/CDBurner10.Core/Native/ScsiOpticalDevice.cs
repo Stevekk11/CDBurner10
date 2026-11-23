@@ -649,6 +649,24 @@ internal static class ScsiOpticalDevice
         SendScsiCommand(handle, cdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 10, out _, out _, out _);
     }
 
+    public static bool TrySetReadSpeed(string? driveLetter, int readSpeedKBps)
+    {
+        if (string.IsNullOrWhiteSpace(driveLetter))
+            return false;
+
+        try
+        {
+            using var handle = OpenDrive(driveLetter, writeAccess: true);
+            if (handle.IsInvalid) return false;
+            SetReadWriteSpeed(handle, readSpeedKBps, 0);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // =========================================================================
     // Linear Data Sector Reading (Grab ISO / Track) & Post-Burn Verification
     // =========================================================================
@@ -668,8 +686,7 @@ internal static class ScsiOpticalDevice
         if (handle.IsInvalid)
             throw new IOException($"Could not open optical drive {driveLetter}: for reading.");
 
-        if (readSpeedKBps > 0)
-            SetReadWriteSpeed(handle, readSpeedKBps, 0);
+        SetReadWriteSpeed(handle, readSpeedKBps, 0);
 
         if (sectorCount <= 0)
         {

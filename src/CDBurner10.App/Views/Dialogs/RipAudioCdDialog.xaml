@@ -10,11 +10,12 @@
     DefaultButton="Primary"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
-    <StackPanel Spacing="12" MinWidth="480">
+    <StackPanel Spacing="12" MinWidth="520">
         <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="False" />
 
         <Grid ColumnSpacing="8">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -25,8 +26,13 @@
                 Header="Audio CD Drive"
                 PlaceholderText="No optical drive detected"
                 SelectionChanged="DriveComboBox_SelectionChanged" />
-            <Button
+            <ComboBox
+                x:Name="ReadSpeedComboBox"
                 Grid.Column="1"
+                HorizontalAlignment="Stretch"
+                Header="Read Speed" />
+            <Button
+                Grid.Column="2"
                 Content="Refresh"
                 VerticalAlignment="Bottom"
                 Click="RefreshButton_Click" />

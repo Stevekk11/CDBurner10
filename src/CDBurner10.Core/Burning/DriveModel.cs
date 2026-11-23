@@ -166,19 +166,39 @@ public sealed class DriveModel
     public void RefreshSpeeds()
     {
         var writeSpeeds = new List<DriveSpeedModel> { new(0, 0) };
-        var readSpeeds = new List<DriveSpeedModel> { new(0, 0) };
+        var detectedMedia = OpticalDiscType.None;
 
         IDiscRecorder2? recorder = null;
         IDiscFormat2Data? format = null;
         try
         {
             recorder = OpenRecorder();
+            try
+            {
+                foreach (var obj in recorder.CurrentProfiles ?? [])
+                {
+                    if (obj is int p && p > 0)
+                    {
+                        var mapped = ScsiOpticalDevice.MapProfileCode((ushort)p);
+                        if (mapped != OpticalDiscType.None)
+                        {
+                            detectedMedia = mapped;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (COMException) { }
+
             format = Imapi2Interop.CreateDiscFormat2Data();
             if (format.IsRecorderSupported(recorder) && format.IsCurrentMediaSupported(recorder))
             {
                 format.put_Recorder(recorder);
                 int mediaType = format.CurrentPhysicalMediaType;
-                double base1xKBps = GetBase1xKBps(BurningEngine.MapImapiMediaType(mediaType));
+                var mappedMedia = BurningEngine.MapImapiMediaType(mediaType);
+                if (mappedMedia != OpticalDiscType.None)
+                    detectedMedia = mappedMedia;
+                double base1xKBps = GetBase1xKBps(mappedMedia);
 
                 var rawSpeeds = format.SupportedWriteSpeeds;
                 if (rawSpeeds is not null)
@@ -202,13 +222,62 @@ public sealed class DriveModel
             Imapi2Interop.SafeRelease(recorder);
         }
 
-        if (MaxReadSpeed > 0)
+        SupportedWriteSpeeds = writeSpeeds;
+        SupportedReadSpeeds = BuildReadSpeedPresets(MaxReadSpeed, detectedMedia);
+    }
+
+    public static IReadOnlyList<DriveSpeedModel> BuildReadSpeedPresets(int maxReadKBps, OpticalDiscType mediaType = OpticalDiscType.None)
+    {
+        var list = new List<DriveSpeedModel> { new(0, 0) };
+
+        bool isCd = BurningEngine.IsCdDisc(mediaType) ||
+                    (mediaType == OpticalDiscType.None && maxReadKBps > 0 && maxReadKBps <= 10500);
+        bool isBd = (mediaType & (OpticalDiscType.BdRom | OpticalDiscType.BdR | OpticalDiscType.BdRDl | OpticalDiscType.BdRe)) != 0 ||
+                    (mediaType == OpticalDiscType.None && maxReadKBps > 25000);
+
+        double base1xKBps;
+        int[] multipliers;
+        if (isCd)
         {
-            readSpeeds.Add(new DriveSpeedModel(MaxReadSpeed, Math.Round(MaxReadSpeed / 176.4, 1)));
+            base1xKBps = 176.4;
+            multipliers = [52, 48, 40, 32, 24, 16, 12, 8, 4, 2, 1];
+        }
+        else if (isBd)
+        {
+            base1xKBps = 4500.0;
+            multipliers = [16, 12, 8, 6, 4, 2, 1];
+        }
+        else
+        {
+            base1xKBps = 1385.0;
+            multipliers = [24, 20, 16, 12, 8, 6, 4, 2, 1];
         }
 
-        SupportedWriteSpeeds = writeSpeeds;
-        SupportedReadSpeeds = readSpeeds;
+        int maxRealisticKBps = (int)Math.Round(multipliers[0] * base1xKBps);
+        int capKBps = maxReadKBps > 0 ? Math.Min(maxReadKBps, maxRealisticKBps) : (int)Math.Round((isCd ? 48 : isBd ? 12 : 16) * base1xKBps);
+
+        if (maxReadKBps > 0 && maxReadKBps <= maxRealisticKBps)
+        {
+            list.Add(new DriveSpeedModel(maxReadKBps, Math.Round(maxReadKBps / base1xKBps, 1)));
+        }
+
+        foreach (int mult in multipliers)
+        {
+            int kbps = (int)Math.Round(mult * base1xKBps);
+            if (maxReadKBps > 0 && maxReadKBps <= maxRealisticKBps)
+            {
+                if (kbps >= maxReadKBps * 0.92)
+                    continue;
+            }
+            else if (kbps > capKBps)
+            {
+                continue;
+            }
+
+            list.Add(new DriveSpeedModel(kbps, mult));
+        }
+
+        return list;
     }
 
     public DiscInfoModel GetDiscInfo(bool refresh = true)
@@ -393,6 +462,7 @@ public sealed class DriveModel
 
         bool isErasable = layout.IsErasable || BurningEngine.IsDiscErasable(discType);
         bool nextSessionAllowed = !isFinalized;
+        SupportedReadSpeeds = BuildReadSpeedPresets(MaxReadSpeed, discType);
 
         return new DiscInfoModel(
             discType,

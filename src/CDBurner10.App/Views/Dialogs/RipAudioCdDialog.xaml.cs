@@ -25,12 +25,23 @@ public sealed partial class RipAudioCdDialog : ContentDialog
 
         IsPrimaryButtonEnabled = false;
         IsSecondaryButtonEnabled = false;
+        PopulateReadSpeeds(DriveComboBox.SelectedItem as DriveModel);
         _ = LoadTracksAsync();
+    }
+
+    private void PopulateReadSpeeds(DriveModel? drive)
+    {
+        int prevSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
+        var speeds = DriveModel.BuildReadSpeedPresets(drive?.MaxReadSpeed ?? 0, OpticalDiscType.CdRom);
+        ReadSpeedComboBox.ItemsSource = speeds;
+        ReadSpeedComboBox.DisplayMemberPath = nameof(DriveSpeedModel.DisplayText);
+        ReadSpeedComboBox.SelectedItem = speeds.FirstOrDefault(s => s.SpeedKBps == prevSpeed) ?? speeds[0];
     }
 
     private async Task LoadTracksAsync()
     {
         var drive = DriveComboBox.SelectedItem as DriveModel;
+        PopulateReadSpeeds(drive);
         if (drive is null)
         {
             StatusInfoBar.Severity = InfoBarSeverity.Informational;
@@ -45,6 +56,7 @@ public sealed partial class RipAudioCdDialog : ContentDialog
 
         RipStatusText.Text = "Scanning Audio CD tracks...";
         var info = await drive.RefreshDiscInfoAsync();
+        PopulateReadSpeeds(drive);
         var audioTracks = info.Sessions
             .SelectMany(s => s.Tracks)
             .Where(t => t.IsAudio)
@@ -130,6 +142,8 @@ public sealed partial class RipAudioCdDialog : ContentDialog
 
         IsPrimaryButtonEnabled = false;
         IsSecondaryButtonEnabled = false;
+        DriveComboBox.IsEnabled = false;
+        ReadSpeedComboBox.IsEnabled = false;
         RipProgressBar.Visibility = Visibility.Visible;
         RipProgressBar.Value = 0;
 
@@ -151,10 +165,12 @@ public sealed partial class RipAudioCdDialog : ContentDialog
                     RipStatusText.Text = $"Ripping Track {tr.TrackNumber:D2} ({idx + 1}/{selected.Count})... {p.Percent}%";
                 });
 
+                int readSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
                 var opts = new GrabOptions
                 {
                     Drive = drive,
-                    TargetPath = wavPath
+                    TargetPath = wavPath,
+                    ReadSpeedKBps = readSpeed
                 };
                 await grabber.GrabTrackAsync(opts, tr.TrackNumber, isAudio: true, prog);
                 ripped.Add(wavPath);
@@ -174,6 +190,8 @@ public sealed partial class RipAudioCdDialog : ContentDialog
         finally
         {
             RipProgressBar.Visibility = Visibility.Collapsed;
+            DriveComboBox.IsEnabled = true;
+            ReadSpeedComboBox.IsEnabled = true;
             IsPrimaryButtonEnabled = true;
             IsSecondaryButtonEnabled = true;
         }

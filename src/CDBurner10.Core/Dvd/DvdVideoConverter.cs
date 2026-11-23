@@ -83,6 +83,9 @@ public sealed record DvdMp4Options
     /// <summary>Hardware GPU acceleration (Auto) or CPU software (Software).</summary>
     public DvdVideoEncoder Encoder { get; init; } = DvdVideoEncoder.Auto;
 
+    /// <summary>Optional optical drive read speed cap in KB/s (0 = maximum).</summary>
+    public int ReadSpeedKBps { get; init; }
+
     /// <summary>Optional limit, mainly useful for previews and tests.</summary>
     public TimeSpan? MaxDuration { get; init; }
 }
@@ -887,6 +890,11 @@ public static class DvdVideoConverter
             throw new InvalidOperationException("Select an output MP4 file.");
 
         string normalizedSource = NormalizeSource(source);
+        if (TryExtractDriveLetter(normalizedSource, out char sourceDriveLetter))
+        {
+            CDBurner10.Core.Native.ScsiOpticalDevice.TrySetReadSpeed(sourceDriveLetter.ToString(), options.ReadSpeedKBps);
+        }
+
         if (string.Equals(
                 Path.GetFullPath(normalizedSource),
                 Path.GetFullPath(destination),

@@ -103,6 +103,7 @@ public sealed class DiscGrabber
                     if (string.IsNullOrWhiteSpace(options.Drive.Letter))
                         throw new InvalidOperationException("The selected drive does not report a drive letter for libdvdnav.");
 
+                    ScsiOpticalDevice.TrySetReadSpeed(options.Drive.Letter, options.ReadSpeedKBps);
                     progress?.Report(new BurnProgress(
                         BurnPhase.Grabbing,
                         0,
@@ -134,6 +135,7 @@ public sealed class DiscGrabber
                     UnfinalizedDvdReader.TryScanDrive(options.Drive.Letter, out var unfinalizedScan) &&
                     unfinalizedScan is not null)
                 {
+                    ScsiOpticalDevice.TrySetReadSpeed(options.Drive.Letter, options.ReadSpeedKBps);
                     progress?.Report(new BurnProgress(
                         BurnPhase.Grabbing,
                         0,
@@ -161,6 +163,7 @@ public sealed class DiscGrabber
                 var discInfo = options.Drive.GetDiscInfo(refresh: true);
                 if (options.DecryptCss && discInfo.IsCssProtected)
                 {
+                    ScsiOpticalDevice.TrySetReadSpeed(options.Drive.Letter, options.ReadSpeedKBps);
                     progress?.Report(new BurnProgress(
                         BurnPhase.Grabbing,
                         0,
@@ -267,7 +270,7 @@ public sealed class DiscGrabber
                                 TotalTracks: totalTracks,
                                 Message: $"Grabbing audio track {idx + 1}/{totalTracks}... {overall}%"));
                         });
-                        CdAudioDevice.RipTrackToWav(options.Drive.Letter, trackNum, wavPath, trackProg, token);
+                        CdAudioDevice.RipTrackToWav(options.Drive.Letter, trackNum, wavPath, trackProg, token, options.ReadSpeedKBps);
                         tracks[trackNum] = new GrabTrackInfo(wavPath, IsAudio: true, track.SizeBlocks);
                     }
                     else
@@ -333,7 +336,7 @@ public sealed class DiscGrabber
                 {
                     var trackProg = new Progress<double>(pct =>
                         progress?.Report(new BurnProgress(BurnPhase.Grabbing, (int)Math.Clamp(pct, 0, 100), Message: $"Grabbing audio track {trackNumber}... {(int)pct}%")));
-                    CdAudioDevice.RipTrackToWav(options.Drive.Letter, trackNumber, options.TargetPath, trackProg, token);
+                    CdAudioDevice.RipTrackToWav(options.Drive.Letter, trackNumber, options.TargetPath, trackProg, token, options.ReadSpeedKBps);
                 }
                 else
                 {

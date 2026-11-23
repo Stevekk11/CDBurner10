@@ -156,6 +156,7 @@ public sealed partial class DvdToMp4Page : Page
     private async Task UpdateSelectedDriveAsync()
     {
         var drive = SourceDriveComboBox.SelectedItem as DriveModel;
+        PopulateReadSpeeds(drive, OpticalDiscType.DvdRom);
         _sourceCssProtected = false;
         if (drive is null)
         {
@@ -167,6 +168,7 @@ public sealed partial class DvdToMp4Page : Page
         DriveStatusText.Text = "Checking inserted disc...";
         var info = await drive.RefreshDiscInfoAsync();
         if (!IsOpticalMode) return;
+        PopulateReadSpeeds(drive, info.HasDisc ? info.DiscType : OpticalDiscType.DvdRom);
 
         if (!info.HasDisc)
         {
@@ -188,6 +190,15 @@ public sealed partial class DvdToMp4Page : Page
             UpdateDefaultDestination();
             await ProbeSourceAsync(driveSource);
         }
+    }
+
+    private void PopulateReadSpeeds(DriveModel? drive, OpticalDiscType mediaType)
+    {
+        int prevSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
+        var speeds = DriveModel.BuildReadSpeedPresets(drive?.MaxReadSpeed ?? 0, mediaType);
+        ReadSpeedComboBox.ItemsSource = speeds;
+        ReadSpeedComboBox.DisplayMemberPath = nameof(DriveSpeedModel.DisplayText);
+        ReadSpeedComboBox.SelectedItem = speeds.FirstOrDefault(s => s.SpeedKBps == prevSpeed) ?? speeds[0];
     }
 
     private void Page_DragOver(object sender, DragEventArgs e)
@@ -505,6 +516,10 @@ public sealed partial class DvdToMp4Page : Page
             ? DvdVideoEncoder.Software
             : DvdVideoEncoder.Auto;
 
+        int readSpeed = IsOpticalMode
+            ? (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0
+            : 0;
+
         var options = new DvdMp4Options
         {
             TitleNumber = GetSelectedTitleNumber(),
@@ -514,7 +529,8 @@ public sealed partial class DvdToMp4Page : Page
             Preset = preset,
             StereoDownmix = StereoDownmixCheckBox.IsChecked == true,
             Deinterlace = DeinterlaceCheckBox.IsChecked == true,
-            Encoder = encoderPref
+            Encoder = encoderPref,
+            ReadSpeedKBps = readSpeed
         };
 
         string resolvedEncoder = await Task.Run(() => DvdVideoConverter.ResolveVideoEncoder(encoderPref));
@@ -544,6 +560,8 @@ public sealed partial class DvdToMp4Page : Page
         AppendLog($"Source: {source} (Title {info.TitleNumber}, {FormatHelper.FormatDuration(info.Duration)}, {info.Width}×{info.Height})");
         AppendLog($"Output: {destination}");
         AppendLog($"Encoder: {resolvedEncoder}, CRF {crf} ({preset}), Audio: {selectedAudio?.DisplayName ?? "None"}, Subtitles: {selectedSubtitle?.DisplayName ?? "None"}, Deinterlace: {options.Deinterlace}");
+        if (IsOpticalMode)
+            AppendLog($"Read speed: {(readSpeed > 0 ? readSpeed + " KB/s" : "Maximum")}");
         if (IsOpticalMode && _sourceCssProtected)
             AppendLog("CSS copy protection detected. Decrypting the disc with libdvdcss...");
         if (info.IsUnfinalizedRaw)
@@ -655,6 +673,7 @@ public sealed partial class DvdToMp4Page : Page
         CancelButton.IsEnabled = busy;
         SourceModeRadio.IsEnabled = !busy;
         SourceDriveComboBox.IsEnabled = !busy;
+        ReadSpeedComboBox.IsEnabled = !busy;
         RefreshDriveButton.IsEnabled = !busy;
         SourcePathBox.IsEnabled = !busy;
         DestinationPathBox.IsEnabled = !busy;

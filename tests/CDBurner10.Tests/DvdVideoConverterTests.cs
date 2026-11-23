@@ -213,4 +213,27 @@ public sealed class DvdVideoConverterTests
         Assert.NotNull(encoder);
         Assert.StartsWith("h264_", encoder);
     }
+
+    [Fact]
+    public void BuildReadSpeedPresets_GeneratesMediaAppropriateSpeeds()
+    {
+        var cdSpeeds = CDBurner10.Core.Burning.DriveModel.BuildReadSpeedPresets(8467, CDBurner10.Core.Burning.OpticalDiscType.CdRom);
+        Assert.Equal("Maximum", cdSpeeds[0].DisplayText);
+        Assert.Equal(0, cdSpeeds[0].SpeedKBps);
+        Assert.Equal(8467, cdSpeeds[1].SpeedKBps);
+        Assert.Contains(cdSpeeds, s => s.SpeedRatio == 4);
+        Assert.Contains(cdSpeeds, s => s.SpeedRatio == 8);
+        Assert.DoesNotContain(cdSpeeds, s => s.SpeedRatio > 52);
+
+        var dvdSpeeds = CDBurner10.Core.Burning.DriveModel.BuildReadSpeedPresets(22160, CDBurner10.Core.Burning.OpticalDiscType.DvdRom);
+        Assert.Equal("Maximum", dvdSpeeds[0].DisplayText);
+        Assert.Equal(22160, dvdSpeeds[1].SpeedKBps);
+        Assert.Contains(dvdSpeeds, s => s.SpeedRatio == 8);
+        Assert.Contains(dvdSpeeds, s => s.SpeedRatio == 4);
+        Assert.DoesNotContain(dvdSpeeds, s => s.SpeedRatio > 24);
+
+        var fallbackDvd = CDBurner10.Core.Burning.DriveModel.BuildReadSpeedPresets(0, CDBurner10.Core.Burning.OpticalDiscType.DvdRom);
+        Assert.True(fallbackDvd.Count > 1);
+        Assert.Equal(0, new DvdMp4Options().ReadSpeedKBps);
+    }
 }

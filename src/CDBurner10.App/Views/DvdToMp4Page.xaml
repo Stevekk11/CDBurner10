@@ -41,6 +41,7 @@
                     <StackPanel x:Name="OpticalSourcePanel" Spacing="8">
                         <Grid ColumnSpacing="10">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
@@ -51,9 +52,14 @@
                                 Header="Optical Drive"
                                 DisplayMemberPath="DisplayName"
                                 SelectionChanged="SourceDriveComboBox_SelectionChanged" />
+                            <ComboBox
+                                x:Name="ReadSpeedComboBox"
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                Header="Read Speed" />
                             <Button
                                 x:Name="RefreshDriveButton"
-                                Grid.Column="1"
+                                Grid.Column="2"
                                 Content="Refresh"
                                 VerticalAlignment="Bottom"
                                 Click="RefreshDriveButton_Click" />

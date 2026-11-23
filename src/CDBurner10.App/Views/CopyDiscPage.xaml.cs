@@ -86,9 +86,7 @@ public sealed partial class CopyDiscPage : Page
     private async void UpdateSourceInfo()
     {
         var drive = SourceDriveComboBox.SelectedItem as DriveModel;
-        ReadSpeedComboBox.ItemsSource = drive?.SupportedReadSpeeds ?? [new DriveSpeedModel(0, 0)];
-        ReadSpeedComboBox.DisplayMemberPath = nameof(DriveSpeedModel.DisplayText);
-        ReadSpeedComboBox.SelectedIndex = 0;
+        PopulateReadSpeeds(drive);
 
         if (drive is null)
         {
@@ -99,6 +97,7 @@ public sealed partial class CopyDiscPage : Page
 
         SourceDiscStatusText.Text = "Checking inserted disc...";
         var info = await drive.RefreshDiscInfoAsync();
+        PopulateReadSpeeds(drive);
         _sourceDiscInfo = info;
         if (!info.HasDisc)
         {
@@ -125,6 +124,15 @@ public sealed partial class CopyDiscPage : Page
         WriteSpeedComboBox.ItemsSource = drive?.SupportedWriteSpeeds ?? [new DriveSpeedModel(0, 0)];
         WriteSpeedComboBox.DisplayMemberPath = nameof(DriveSpeedModel.DisplayText);
         WriteSpeedComboBox.SelectedIndex = 0;
+    }
+
+    private void PopulateReadSpeeds(DriveModel? drive)
+    {
+        int prevSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
+        var speeds = drive?.SupportedReadSpeeds is { Count: > 0 } ? drive.SupportedReadSpeeds : [new DriveSpeedModel(0, 0)];
+        ReadSpeedComboBox.ItemsSource = speeds;
+        ReadSpeedComboBox.DisplayMemberPath = nameof(DriveSpeedModel.DisplayText);
+        ReadSpeedComboBox.SelectedItem = speeds.FirstOrDefault(s => s.SpeedKBps == prevSpeed) ?? speeds[0];
     }
 
     private void SourceDriveComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateSourceInfo();
@@ -389,7 +397,9 @@ public sealed partial class CopyDiscPage : Page
     {
         StartCopyButton.IsEnabled = !busy;
         SourceDriveComboBox.IsEnabled = !busy;
+        ReadSpeedComboBox.IsEnabled = !busy;
         TargetDriveComboBox.IsEnabled = !busy;
+        WriteSpeedComboBox.IsEnabled = !busy;
         TargetModeRadio.IsEnabled = !busy;
         CancelButton.IsEnabled = busy;
     }
