@@ -247,7 +247,6 @@ public sealed class DiscGrabber
                 int totalTracks = allTracks.Count;
                 var tracks = new Dictionary<int, GrabTrackInfo>();
 
-                long currentLba = 0;
                 for (int i = 0; i < totalTracks; i++)
                 {
                     token.ThrowIfCancellationRequested();
@@ -287,7 +286,7 @@ public sealed class DiscGrabber
                         ScsiOpticalDevice.GrabDataSectorsToFile(
                             options.Drive.Letter,
                             isoPath,
-                            currentLba,
+                            track.StartLba,
                             track.SizeBlocks,
                             options.ReadSpeedKBps,
                             Math.Max(1, options.NumberOfReadRetries),
@@ -296,8 +295,6 @@ public sealed class DiscGrabber
                             token);
                         tracks[trackNum] = new GrabTrackInfo(isoPath, IsAudio: false, track.SizeBlocks);
                     }
-
-                    currentLba += track.SizeBlocks;
                 }
 
                 progress?.Report(new BurnProgress(BurnPhase.Completed, 100, Message: "All tracks grabbed successfully."));
@@ -342,11 +339,12 @@ public sealed class DiscGrabber
                 {
                     var discInfo = options.Drive.GetDiscInfo(refresh: true);
                     var track = discInfo.Sessions.SelectMany(s => s.Tracks).FirstOrDefault(t => t.TrackNumber == trackNumber);
+                    long startLba = track?.StartLba ?? 0;
                     long sectors = track?.SizeBlocks ?? 0;
                     ScsiOpticalDevice.GrabDataSectorsToFile(
                         options.Drive.Letter,
                         options.TargetPath,
-                        0,
+                        startLba,
                         sectors,
                         options.ReadSpeedKBps,
                         Math.Max(1, options.NumberOfReadRetries),

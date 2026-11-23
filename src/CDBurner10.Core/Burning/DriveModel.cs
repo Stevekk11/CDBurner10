@@ -18,7 +18,8 @@ public sealed record TrackModel(
     int SizeBlocks,
     int LogicalBlockSize,
     long SizeBytes,
-    TimeSpan AudioDuration);
+    TimeSpan AudioDuration,
+    int StartLba = 0);
 
 public sealed record SessionModel(
     int SessionNumber,

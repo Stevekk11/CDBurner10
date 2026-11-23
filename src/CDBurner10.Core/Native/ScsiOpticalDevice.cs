@@ -447,7 +447,7 @@ internal static class ScsiOpticalDevice
                 int blockSize = cur.IsAudio ? AudioSectorSize : DataSectorSize;
                 long sizeBytes = (long)blocks * blockSize;
                 var dur = cur.IsAudio ? TimeSpan.FromSeconds(blocks / 75.0) : TimeSpan.Zero;
-                tracks.Add(new TrackModel(cur.TrackNum, cur.IsAudio, blocks, blockSize, sizeBytes, dur));
+                tracks.Add(new TrackModel(cur.TrackNum, cur.IsAudio, blocks, blockSize, sizeBytes, dur, cur.StartLba));
             }
 
             if (tracks.Count > 0)
@@ -598,7 +598,7 @@ internal static class ScsiOpticalDevice
                             list = [];
                             tracksBySession[sessionNum] = list;
                         }
-                        list.Add(new TrackModel(t, isAudio, trackSize, blockSize, sizeBytes, duration));
+                        list.Add(new TrackModel(t, isAudio, trackSize, blockSize, sizeBytes, duration, startLba));
                         usedSectors += Math.Max(0, trackSize);
                         if (freeBlocks > 0) freeSectors += freeBlocks;
                     }
@@ -866,9 +866,8 @@ internal static class ScsiOpticalDevice
             // 1. Configure Mode Page 0x05 (Write Parameters) for SAO (WriteType = 0x02)
             ConfigureSaoWriteParameters(handle, testBurn);
 
-            // 2. Build CD-Text packs (optional) & MMC Cue Sheet
-            byte[]? cdTextBytes = enableCdText ? BuildCdTextPacks(discTitle, discArtist, tracks) : null;
-            byte[] cueSheet = BuildSaoCueSheet(trackStreams, cdTextBytes is not null);
+            // 2. Build MMC Cue Sheet
+            byte[] cueSheet = BuildSaoCueSheet(trackStreams);
 
             // 3. SEND CUE SHEET (0x5D)
             byte[] cueCdb =
@@ -993,8 +992,7 @@ internal static class ScsiOpticalDevice
     }
 
     private static byte[] BuildSaoCueSheet(
-        List<(string Path, long DataOffset, long DataLength, int Sectors, int PreGap)> tracks,
-        bool hasCdText)
+        List<(string Path, long DataOffset, long DataLength, int Sectors, int PreGap)> tracks)
     {
         var entries = new List<byte>(8 * (tracks.Count * 2 + 2));
 
@@ -1327,17 +1325,36 @@ internal static class ScsiOpticalDevice
     private static int QueryNextWritableAddress(SafeFileHandle handle)
     {
         var tiBuf = new byte[36];
-        // READ TRACK INFORMATION (0x52), Address/Number Type = 1, Track = 0xFF (invisible/open track)
+        // 1. Try READ TRACK INFORMATION (0x52), Address/Number Type = 1, Track = 0xFF (invisible/open track)
         byte[] tiCdb = [0x52, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, (byte)tiBuf.Length, 0x00];
-        if (!SendScsiCommand(handle, tiCdb, tiBuf, SCSI_IOCTL_DATA_IN, 10, out byte sk, out byte asc, out byte ascq))
-            throw new IOException($"Unable to query Next Writable Address on disc (Sense {sk:X2}/{asc:X2}/{ascq:X2}).");
-
-        bool nwaValid = (tiBuf[7] & 0x01) != 0;
-        if (nwaValid)
+        if (SendScsiCommand(handle, tiCdb, tiBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
         {
-            return (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(12, 4));
+            bool nwaValid = (tiBuf[7] & 0x01) != 0;
+            return nwaValid
+                ? (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(12, 4))
+                : (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(8, 4));
         }
-        return (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(8, 4));
+
+        // 2. Fallback: query READ DISC INFORMATION (0x51) for lastTrackLastSession and read its Track Information
+        var discBuf = new byte[34];
+        byte[] discCdb = [0x51, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)discBuf.Length, 0x00];
+        if (SendScsiCommand(handle, discCdb, discBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
+        {
+            int lastTrack = discBuf[6] | (discBuf[11] << 8);
+            if (lastTrack > 0)
+            {
+                byte[] tiLastCdb = [0x52, 0x01, 0x00, 0x00, (byte)(lastTrack >> 8), (byte)(lastTrack & 0xFF), 0x00, 0x00, (byte)tiBuf.Length, 0x00];
+                if (SendScsiCommand(handle, tiLastCdb, tiBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
+                {
+                    bool nwaValid = (tiBuf[7] & 0x01) != 0;
+                    return nwaValid
+                        ? (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(12, 4))
+                        : (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(8, 4));
+                }
+            }
+        }
+
+        throw new IOException("Unable to query Next Writable Address on disc.");
     }
 
     private static void WaitForDriveReady(SafeFileHandle handle, CancellationToken ct)

@@ -63,8 +63,10 @@ public sealed class AudioBurner
                 {
                     ct.ThrowIfCancellationRequested();
 
+                    var currentDisc = options.Drive.GetDiscInfo(refresh: false);
                     bool useDao = options.GapMode != AudioGapMode.TaoPause &&
-                                  !string.IsNullOrWhiteSpace(options.Drive.Letter);
+                                  !string.IsNullOrWhiteSpace(options.Drive.Letter) &&
+                                  (currentDisc.IsBlank || !currentDisc.HasDisc);
 
                     if (useDao)
                     {
@@ -146,7 +148,7 @@ public sealed class AudioBurner
                 // IMAPI2 TrackAtOnce only supports blank CD-R/CD-RW discs.
                 // If an open multi-session CD-R/CD-RW is inserted, fall back to direct SPTI MMC TAO burning!
                 var discInfo = options.Drive.GetDiscInfo(refresh: false);
-                if (discInfo.HasDisc && discInfo.IsCd && discInfo.IsNextSessionAllowed && !string.IsNullOrWhiteSpace(options.Drive.Letter))
+                if (discInfo.HasDisc && discInfo.IsCd && (discInfo.IsNextSessionAllowed || discInfo.FreeSizeBytes > 0) && !string.IsNullOrWhiteSpace(options.Drive.Letter))
                 {
                     Imapi2Interop.SafeRelease(tao);
                     tao = null;

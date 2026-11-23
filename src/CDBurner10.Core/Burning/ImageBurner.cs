@@ -82,6 +82,12 @@ public sealed class ImageBurner
             format.put_ForceMediaToBeClosed(options.FinalizeDisc);
             format.put_BufferUnderrunFreeDisabled(false);
 
+            // Allow overwriting non-blank rewritable media (DVD+RW, BD-RE, DVD-RAM)
+            if ((format.CurrentMediaStatus & (Imapi2Interop.MediaStateOverwriteable | Imapi2Interop.MediaStateRandomlyWritable)) != 0)
+            {
+                try { format.put_ForceOverwrite(true); } catch (COMException) { }
+            }
+
             if (options.WriteSpeedKBps > 0)
             {
                 try { format.SetWriteSpeed(Math.Max(1, options.WriteSpeedKBps / 2), false); } catch (COMException) { }

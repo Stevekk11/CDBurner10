@@ -142,4 +142,44 @@ public sealed class DataCompilationTests
         var defaultResult = DataCompilation.ReplaceDiscLabelVariables("   ");
         Assert.False(string.IsNullOrWhiteSpace(defaultResult));
     }
+
+    [Fact]
+    public async Task GenericDataBurner_SaveIsoAsync_IsoJoliet_WritesValidSectorAlignedIso()
+    {
+        using var tmp = new TempDirectory();
+        var file = tmp.CreateTextFile("hello.txt", "CDBurner10 IMAPI2 ISO test payload");
+        var isoPath = Path.Combine(tmp.Path, "out_joliet.iso");
+
+        var burner = new GenericDataBurner { VolumeName = "ISO_TEST:INVALID*CHARS" };
+        burner.AddFile(file, "\\Docs");
+        await burner.SaveIsoAsync(isoPath);
+
+        Assert.True(File.Exists(isoPath));
+        long len = new FileInfo(isoPath).Length;
+        Assert.True(len >= 2048 * 16, $"Expected valid ISO size, got {len}");
+        Assert.Equal(0, len % 2048);
+    }
+
+    [Fact]
+    public async Task GenericDataBurner_SaveIsoAsync_Udf260_FallsBackCleanlyToUdf250()
+    {
+        using var tmp = new TempDirectory();
+        var file = tmp.CreateTextFile("archive.dat", "UDF 2.60 fallback test payload");
+        var isoPath = Path.Combine(tmp.Path, "out_udf.iso");
+
+        var burner = new GenericDataBurner
+        {
+            VolumeName = "UDF260_TEST",
+            UdfVersion = UdfVersion.V2_60
+        };
+        burner.SetFileSystemType(DataFileSystem.Udf);
+        burner.AddFile(file, "\\");
+
+        await burner.SaveIsoAsync(isoPath);
+
+        Assert.True(File.Exists(isoPath));
+        long len = new FileInfo(isoPath).Length;
+        Assert.True(len >= 2048 * 16, $"Expected valid UDF ISO size, got {len}");
+        Assert.Equal(0, len % 2048);
+    }
 }

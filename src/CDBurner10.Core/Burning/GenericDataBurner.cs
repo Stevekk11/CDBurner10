@@ -379,11 +379,20 @@ public sealed class GenericDataBurner
 
                 if (args.CurrentAction == Imapi2Interop.WriteActionFinalization)
                 {
-                    progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, bufPct, TimeSpan.FromSeconds(args.RemainingTime), Message: "Closing session..."));
+                    progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, bufPct, TimeSpan.FromSeconds(Math.Max(0, args.RemainingTime)), Message: "Closing session..."));
                     return;
                 }
 
-                int pct = args.SectorCount > 0
+                string phaseMsg = args.CurrentAction switch
+                {
+                    Imapi2Interop.WriteActionValidatingMedia => "Validating media...",
+                    Imapi2Interop.WriteActionFormattingMedia => "Formatting media...",
+                    Imapi2Interop.WriteActionInitializingHardware => "Initializing drive...",
+                    Imapi2Interop.WriteActionCalibratingPower => "Calibrating laser power...",
+                    _ => _fileSystem == DataFileSystem.Udf ? "Writing UDF data..." : "Writing data..."
+                };
+
+                int pct = args.SectorCount > 0 && args.CurrentAction == Imapi2Interop.WriteActionWritingData
                     ? (int)Math.Clamp((args.LastWrittenLba - args.StartLba) * 100.0 / args.SectorCount, 0, 100)
                     : 0;
                 progress?.Report(new BurnProgress(
@@ -391,7 +400,7 @@ public sealed class GenericDataBurner
                     pct,
                     bufPct,
                     TimeSpan.FromSeconds(Math.Max(0, args.RemainingTime)),
-                    Message: _fileSystem == DataFileSystem.Udf ? $"Writing UDF data... {pct}%" : $"Writing data... {pct}%"));
+                    Message: args.CurrentAction == Imapi2Interop.WriteActionWritingData ? $"{phaseMsg} {pct}%" : phaseMsg));
             });
 
             _activeFormat = format;
@@ -490,19 +499,31 @@ public sealed class GenericDataBurner
 
         if (_fileSystem == DataFileSystem.Udf)
         {
-            fsi.put_UDFRevision(MapUdfRevisionHex(UdfVersion));
+            ApplyUdfRevisionSafe(fsi, UdfVersion);
         }
 
         if (recorder is not null && format is not null)
         {
             if (!format.MediaPhysicallyBlank && !format.MediaHeuristicallyBlank)
             {
+                bool imported = false;
                 try
                 {
                     fsi.MultisessionInterfaces = format.MultisessionInterfaces;
                     fsi.ImportFileSystem();
+                    imported = true;
                 }
                 catch (COMException) { }
+
+                if (!imported && (format.CurrentMediaStatus & (Imapi2Interop.MediaStateOverwriteable | Imapi2Interop.MediaStateRandomlyWritable)) != 0)
+                {
+                    try { format.put_ForceOverwrite(true); } catch (COMException) { }
+                    fsi.FreeMediaBlocks = format.TotalSectorsOnMedia;
+                }
+                else
+                {
+                    fsi.FreeMediaBlocks = format.FreeSectorsOnMedia;
+                }
             }
             else
             {
@@ -512,9 +533,9 @@ public sealed class GenericDataBurner
                     ? Imapi2Interop.FsiFileSystemUDF
                     : (Imapi2Interop.FsiFileSystemISO9660 | Imapi2Interop.FsiFileSystemJoliet);
                 if (_fileSystem == DataFileSystem.Udf)
-                    fsi.put_UDFRevision(MapUdfRevisionHex(UdfVersion));
+                    ApplyUdfRevisionSafe(fsi, UdfVersion);
+                fsi.FreeMediaBlocks = format.FreeSectorsOnMedia;
             }
-            fsi.FreeMediaBlocks = format.FreeSectorsOnMedia;
         }
         else
         {
@@ -522,10 +543,32 @@ public sealed class GenericDataBurner
             fsi.FreeMediaBlocks = 0;
         }
 
-        fsi.VolumeName = string.IsNullOrWhiteSpace(label) ? "Disc" : label;
+        fsi.VolumeName = SanitizeVolumeName(label, NameMaxLength);
         ApplyBootImage(fsi, openedStreams);
         PopulateFsiTree(RootFolder, fsi.Root, openedStreams);
         return fsi;
+    }
+
+    private static void ApplyUdfRevisionSafe(IFileSystemImage fsi, UdfVersion version)
+    {
+        int rev = MapUdfRevisionHex(version);
+        try
+        {
+            fsi.put_UDFRevision(rev);
+        }
+        catch (Exception)
+        {
+            // Windows IMAPI2FS supports up to UDF 2.50 (0x250); fall back cleanly from 2.60
+            fsi.put_UDFRevision(0x250);
+        }
+    }
+
+    private static string SanitizeVolumeName(string? label, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return "Disc";
+        var cleaned = new string(label.Trim().Where(c => c >= 0x20 && "\\/:*?\"<>|;".IndexOf(c) < 0).ToArray());
+        if (string.IsNullOrWhiteSpace(cleaned)) return "Disc";
+        return cleaned.Length > maxLength ? cleaned[..maxLength] : cleaned;
     }
 
     private void ApplyBootImage(IFileSystemImage fsi, List<IStream> openedStreams)
@@ -572,7 +615,16 @@ public sealed class GenericDataBurner
                 out var stream);
             openedStreams.Add(stream);
 
-            target.AddFile(safeName, stream);
+            try
+            {
+                target.AddFile(safeName, stream);
+            }
+            catch (COMException)
+            {
+                // Replace file imported from a previous multi-session track if names collide
+                try { target.Remove(safeName); } catch (COMException) { }
+                target.AddFile(safeName, stream);
+            }
             try
             {
                 var item = target[safeName];
