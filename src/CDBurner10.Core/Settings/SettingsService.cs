@@ -11,8 +11,27 @@ public sealed class SettingsService
         PropertyNameCaseInsensitive = true
     };
 
+    private static readonly object DefaultLock = new();
     private static SettingsService? _default;
-    public static SettingsService Default => _default ??= new SettingsService();
+    public static SettingsService Default
+    {
+        get
+        {
+            if (_default is null)
+            {
+                lock (DefaultLock)
+                {
+                    if (_default is null)
+                    {
+                        var svc = new SettingsService();
+                        svc.Load();
+                        _default = svc;
+                    }
+                }
+            }
+            return _default;
+        }
+    }
 
     public AppSettings Current { get; private set; } = new();
     public bool IsPortableMode { get; }
