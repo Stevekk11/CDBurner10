@@ -6,6 +6,7 @@ using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Printing;
@@ -123,6 +124,7 @@ public sealed partial class CoverPrintPage : Page
             Title = TitleBox.Text?.Trim() ?? string.Empty,
             Subtitle = SubtitleBox.Text?.Trim() ?? string.Empty,
             BackgroundImagePath = _backgroundImagePath,
+            BackgroundOpacity = Math.Clamp(BackgroundOpacitySlider.Value / 100.0, 0.0, 1.0),
             Columns = Math.Max(1, (int)ColumnsBox.Value),
             ShowNumbers = ShowNumbersCheckBox.IsChecked == true
         };
@@ -148,6 +150,8 @@ public sealed partial class CoverPrintPage : Page
         CoverPreviewCard.Height = Math.Round(layout.HeightMm * scale);
 
         var job = BuildJob();
+        PreviewBackgroundImage.Opacity = job.BackgroundOpacity;
+        BackgroundOpacityText.Text = $"{Math.Round(job.BackgroundOpacity * 100):0}%";
         PreviewTitleText.Text = string.IsNullOrWhiteSpace(job.Title) ? "Untitled Disc" : job.Title;
         PreviewSubtitleText.Text = job.Subtitle;
         PreviewSubtitleText.Visibility = string.IsNullOrWhiteSpace(job.Subtitle) ? Visibility.Collapsed : Visibility.Visible;
@@ -159,6 +163,7 @@ public sealed partial class CoverPrintPage : Page
     private void DesignerInput_Changed(object sender, TextChangedEventArgs e) => UpdatePreview();
     private void ColumnsBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) => UpdatePreview();
     private void DesignerOption_Changed(object sender, RoutedEventArgs e) => UpdatePreview();
+    private void BackgroundOpacitySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e) => UpdatePreview();
 
     private async void PickBackgroundButton_Click(object sender, RoutedEventArgs e)
     {
@@ -351,7 +356,7 @@ public sealed partial class CoverPrintPage : Page
             {
                 Source = _preloadedBackgroundImage,
                 Stretch = Stretch.UniformToFill,
-                Opacity = 0.28
+                Opacity = plan.BackgroundOpacity
             });
         }
 

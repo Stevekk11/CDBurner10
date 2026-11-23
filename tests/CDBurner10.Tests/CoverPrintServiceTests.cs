@@ -84,5 +84,18 @@ public sealed class CoverPrintServiceTests
         Assert.Equal(2, plan.SpineGuideOffsetsMm.Count);
         Assert.Equal(2, plan.Columns.Count);
         Assert.Equal("2026 Edition", plan.Subtitle);
+        Assert.Equal(0.28, plan.BackgroundOpacity, precision: 3);
+    }
+
+    [Fact]
+    public void CreatePrintPlan_ClampsBackgroundOpacityToValidRange()
+    {
+        var lowPlan = CoverPrintService.CreatePrintPlan(new CoverPrintJob { BackgroundOpacity = -0.5 });
+        var highPlan = CoverPrintService.CreatePrintPlan(new CoverPrintJob { BackgroundOpacity = 1.75 });
+        var midPlan = CoverPrintService.CreatePrintPlan(new CoverPrintJob { BackgroundOpacity = 0.65 });
+
+        Assert.Equal(0.0, lowPlan.BackgroundOpacity, precision: 3);
+        Assert.Equal(1.0, highPlan.BackgroundOpacity, precision: 3);
+        Assert.Equal(0.65, midPlan.BackgroundOpacity, precision: 3);
     }
 }

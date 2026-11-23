@@ -30,6 +30,7 @@ public sealed record CoverPrintPlan(
     string Subtitle,
     IReadOnlyList<IReadOnlyList<string>> Columns,
     string? BackgroundImagePath,
+    double BackgroundOpacity,
     bool PreferLandscape);
 
 public sealed class CoverPrintJob
@@ -38,6 +39,7 @@ public sealed class CoverPrintJob
     public string Title { get; set; } = string.Empty;
     public string Subtitle { get; set; } = string.Empty;
     public string? BackgroundImagePath { get; set; }
+    public double BackgroundOpacity { get; set; } = 0.28;
     public List<string> Items { get; } = [];
     public int Columns { get; set; } = 1;
     public bool ShowNumbers { get; set; } = true;
@@ -140,6 +142,7 @@ public static class CoverPrintService
             Subtitle: job.Subtitle.Trim(),
             Columns: SplitItemsIntoColumns(job),
             BackgroundImagePath: job.BackgroundImagePath,
+            BackgroundOpacity: Math.Clamp(job.BackgroundOpacity, 0.0, 1.0),
             PreferLandscape: dims.WidthMm > 190.0 && dims.WidthMm > dims.HeightMm);
     }
 
