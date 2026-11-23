@@ -1,4 +1,7 @@
+using System.Diagnostics;
 using System.Globalization;
+using CDBurner10.Core.Dvd;
+using NAudio.Wave;
 
 namespace CDBurner10.Core.Audio;
 
@@ -60,20 +63,25 @@ public static class AudioTagReader
                 rgTrack ??= ParseReplayGainDb(xiph.GetFirstField("REPLAYGAIN_TRACK_GAIN"));
                 rgAlbum ??= ParseReplayGainDb(xiph.GetFirstField("REPLAYGAIN_ALBUM_GAIN"));
             }
+            if (tfile.GetTag(TagLib.TagTypes.Ape) is TagLib.Ape.Tag ape)
+            {
+                rgTrack ??= ParseReplayGainDb(ape.GetItem("REPLAYGAIN_TRACK_GAIN")?.ToString());
+                rgAlbum ??= ParseReplayGainDb(ape.GetItem("REPLAYGAIN_ALBUM_GAIN")?.ToString());
+            }
         }
         catch
         {
-            // Fallback to BASS for duration/CD-Text if TagLib doesn't support the format
+            // Fallback to NAudio / ffprobe for duration if TagLib doesn't support the format
         }
 
         if (duration <= TimeSpan.Zero)
         {
-            duration = GetDurationViaBass(filePath);
+            duration = GetDurationFallback(filePath);
         }
 
         if (PlaylistParser.IsCda(filePath))
         {
-            var cdTextTitle = BassAudioEngine.GetCdTextTrackTitle(filePath);
+            var cdTextTitle = CdAudioDevice.GetCdTextTrackTitle(filePath);
             if (!string.IsNullOrWhiteSpace(cdTextTitle))
             {
                 title = cdTextTitle;
@@ -103,29 +111,58 @@ public static class AudioTagReader
         return (info.ReplayGainTrackDb, info.ReplayGainAlbumDb);
     }
 
-    private static TimeSpan GetDurationViaBass(string filePath)
+    private static TimeSpan GetDurationFallback(string filePath)
     {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            return TimeSpan.Zero;
+
+        // 1. Try NAudio (handles WAV, MP3, WMA, M4A, AAC, AIFF via Windows Media Foundation)
         try
         {
-            BassAudioEngine.Initialize();
-            int stream = NativeBass.BASS_StreamCreateFile(false, filePath, 0, 0, NativeBass.BASS_STREAM_DECODE | NativeBass.BASS_UNICODE);
-            if (stream == 0) return TimeSpan.Zero;
-            try
-            {
-                long len = NativeBass.BASS_ChannelGetLength(stream, NativeBass.BASS_POS_BYTE);
-                if (len <= 0) return TimeSpan.Zero;
-                double secs = NativeBass.BASS_ChannelBytes2Seconds(stream, len);
-                return secs > 0 ? TimeSpan.FromSeconds(secs) : TimeSpan.Zero;
-            }
-            finally
-            {
-                NativeBass.BASS_StreamFree(stream);
-            }
+            using var reader = new AudioFileReader(filePath);
+            if (reader.TotalTime > TimeSpan.Zero)
+                return reader.TotalTime;
         }
         catch
         {
-            return TimeSpan.Zero;
+            // Fall through to ffprobe
         }
+
+        // 2. Try ffprobe (handles Opus, APE, WavPack, MPC, OGG, FLAC, etc.)
+        try
+        {
+            string? ffprobe = DvdVideoConverter.FindFfprobe();
+            if (string.IsNullOrWhiteSpace(ffprobe)) return TimeSpan.Zero;
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffprobe,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            psi.ArgumentList.Add("-v");
+            psi.ArgumentList.Add("error");
+            psi.ArgumentList.Add("-show_entries");
+            psi.ArgumentList.Add("format=duration");
+            psi.ArgumentList.Add("-of");
+            psi.ArgumentList.Add("default=noprint_wrappers=1:nokey=1");
+            psi.ArgumentList.Add(filePath);
+
+            using var process = Process.Start(psi);
+            if (process is null) return TimeSpan.Zero;
+            string output = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit(3000);
+            if (double.TryParse(output, NumberStyles.Float, CultureInfo.InvariantCulture, out double secs) && secs > 0)
+                return TimeSpan.FromSeconds(secs);
+        }
+        catch
+        {
+            // Ignore probe failures
+        }
+
+        return TimeSpan.Zero;
     }
 
     private static double? ParseReplayGainDb(string? raw)

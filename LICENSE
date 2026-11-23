@@ -29,8 +29,7 @@ Redistributed binary dependencies remain subject to their respective licenses:
 
 - StarBurn SDK / StarBurnX 15.7 (Rocket Division Software) & SPTD Interface
   (Duplex Secure Ltd): Proprietary closed-source optical burning components.
-- BASS 2.4 & BASS add-ons (Un4seen Developments / MaresWEB): Proprietary audio
-  playback and decoding libraries.
+- NAudio (Mark Heath): MIT License.
 - Windows App SDK / WinUI 3 (Microsoft Corporation): MIT License.
 - TagLibSharp: LGPL-2.1.
 - libdvdnav / libdvdread / libdvdcss (VideoLAN): GPL-2.0-or-later (dynamically

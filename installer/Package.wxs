@@ -145,7 +145,7 @@
     <!-- Installable Features -->
     <Feature Id="CoreApplication"
              Title="CDBurner10 Application"
-             Description="WinUI 3 desktop app, cdbxpcmd CLI, StarBurnX burning engine, BASS audio, and DVD tools."
+             Description="WinUI 3 desktop app, cdbxpcmd CLI, StarBurnX burning engine, NAudio/TagLibSharp audio, and DVD tools."
              Level="1"
              AllowAbsent="no"
              ConfigurableDirectory="INSTALLFOLDER">

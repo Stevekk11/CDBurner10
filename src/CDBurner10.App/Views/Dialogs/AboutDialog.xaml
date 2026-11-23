@@ -37,7 +37,7 @@
                 <TextBlock Text="Technologies &amp; Credits" Style="{StaticResource BodyStrongTextBlockStyle}" />
                 <TextBlock Text="• Runtime: .NET 10 (win-x86) + WinUI 3 / Windows App SDK 1.7" Style="{StaticResource CaptionTextBlockStyle}" />
                 <TextBlock Text="• Optical Burning Engine: Rocket Division StarBurnX (Reg-Free COM)" Style="{StaticResource CaptionTextBlockStyle}" />
-                <TextBlock Text="• Audio Engine: Un4seen BASS Audio Library &amp; Plugins" Style="{StaticResource CaptionTextBlockStyle}" />
+                <TextBlock Text="• Audio Engine: NAudio (MIT) + TagLibSharp + FFmpeg + Win32 CD-DA" Style="{StaticResource CaptionTextBlockStyle}" />
                 <TextBlock Text="• Project Formats: Full CDBurnerXP .dxp / .axp &amp; CLI parity" Style="{StaticResource CaptionTextBlockStyle}" />
             </StackPanel>
         </Border>

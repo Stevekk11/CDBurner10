@@ -1,3 +1,7 @@
+using System.Diagnostics;
+using CDBurner10.Core.Dvd;
+using NAudio.Wave;
+
 namespace CDBurner10.Core.Audio;
 
 public enum AudioPlaybackState
@@ -7,9 +11,17 @@ public enum AudioPlaybackState
     Paused
 }
 
+/// <summary>
+/// Audio preview player powered by NAudio (WaveOutEvent + AudioFileReader) with
+/// transparent FFmpeg decode fallback for formats outside Windows Media Foundation
+/// (e.g. Opus, APE, WavPack, MPC, OGG).
+/// </summary>
 public sealed class AudioPlayerService : IDisposable
 {
-    private int _streamHandle;
+    private readonly object _sync = new();
+    private WaveOutEvent? _outputDevice;
+    private AudioFileReader? _reader;
+    private string? _tempDecodedWav;
     private float _volume = 1.0f;
     private AudioPlaybackState _state = AudioPlaybackState.Stopped;
 
@@ -20,10 +32,10 @@ public sealed class AudioPlayerService : IDisposable
     {
         get
         {
-            if (_streamHandle == 0) return TimeSpan.Zero;
-            long len = NativeBass.BASS_ChannelGetLength(_streamHandle, NativeBass.BASS_POS_BYTE);
-            if (len < 0) return TimeSpan.Zero;
-            return TimeSpan.FromSeconds(Math.Max(0, NativeBass.BASS_ChannelBytes2Seconds(_streamHandle, len)));
+            lock (_sync)
+            {
+                return _reader?.TotalTime ?? TimeSpan.Zero;
+            }
         }
     }
 
@@ -31,10 +43,10 @@ public sealed class AudioPlayerService : IDisposable
     {
         get
         {
-            if (_streamHandle == 0) return TimeSpan.Zero;
-            long pos = NativeBass.BASS_ChannelGetPosition(_streamHandle, NativeBass.BASS_POS_BYTE);
-            if (pos < 0) return TimeSpan.Zero;
-            return TimeSpan.FromSeconds(Math.Max(0, NativeBass.BASS_ChannelBytes2Seconds(_streamHandle, pos)));
+            lock (_sync)
+            {
+                return _reader?.CurrentTime ?? TimeSpan.Zero;
+            }
         }
     }
 
@@ -44,9 +56,10 @@ public sealed class AudioPlayerService : IDisposable
         set
         {
             _volume = Math.Clamp(value, 0f, 1f);
-            if (_streamHandle != 0)
+            lock (_sync)
             {
-                NativeBass.BASS_ChannelSetAttribute(_streamHandle, NativeBass.BASS_ATTRIB_VOL, _volume);
+                if (_reader is not null)
+                    _reader.Volume = _volume;
             }
         }
     }
@@ -61,40 +74,86 @@ public sealed class AudioPlayerService : IDisposable
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
             return false;
 
-        int handle = NativeBass.BASS_StreamCreateFile(false, filePath, 0, 0, NativeBass.BASS_UNICODE);
-        if (handle == 0)
+        AudioFileReader? reader = null;
+        string? tempWav = null;
+
+        try
+        {
+            reader = new AudioFileReader(filePath);
+        }
+        catch
+        {
+            // Fallback: decode exotic formats (Opus, APE, WV, MPC, OGG, etc.) to a temp WAV via FFmpeg
+            tempWav = TryDecodeToTempWav(filePath);
+            if (tempWav is not null)
+            {
+                try
+                {
+                    reader = new AudioFileReader(tempWav);
+                }
+                catch
+                {
+                    TryDeleteFile(tempWav);
+                    return false;
+                }
+            }
+        }
+
+        if (reader is null)
             return false;
 
-        _streamHandle = handle;
-        CurrentFile = filePath;
-        NativeBass.BASS_ChannelSetAttribute(_streamHandle, NativeBass.BASS_ATTRIB_VOL, _volume);
-
-        if (!NativeBass.BASS_ChannelPlay(_streamHandle, restart: true))
+        try
         {
+            reader.Volume = _volume;
+            var device = new WaveOutEvent();
+            device.PlaybackStopped += (_, _) =>
+            {
+                if (_state == AudioPlaybackState.Playing && _reader is not null && _reader.Position >= _reader.Length)
+                {
+                    SetState(AudioPlaybackState.Stopped);
+                }
+            };
+            device.Init(reader);
+            device.Play();
+
+            lock (_sync)
+            {
+                _reader = reader;
+                _outputDevice = device;
+                _tempDecodedWav = tempWav;
+                CurrentFile = filePath;
+            }
+
+            SetState(AudioPlaybackState.Playing);
+            return true;
+        }
+        catch
+        {
+            reader.Dispose();
+            if (tempWav is not null) TryDeleteFile(tempWav);
             Stop();
             return false;
         }
-
-        SetState(AudioPlaybackState.Playing);
-        return true;
     }
 
     public void Pause()
     {
-        if (_streamHandle == 0 || _state != AudioPlaybackState.Playing) return;
-        if (NativeBass.BASS_ChannelPause(_streamHandle))
+        lock (_sync)
         {
-            SetState(AudioPlaybackState.Paused);
+            if (_outputDevice is null || _state != AudioPlaybackState.Playing) return;
+            _outputDevice.Pause();
         }
+        SetState(AudioPlaybackState.Paused);
     }
 
     public void Resume()
     {
-        if (_streamHandle == 0 || _state != AudioPlaybackState.Paused) return;
-        if (NativeBass.BASS_ChannelPlay(_streamHandle, restart: false))
+        lock (_sync)
         {
-            SetState(AudioPlaybackState.Playing);
+            if (_outputDevice is null || _state != AudioPlaybackState.Paused) return;
+            _outputDevice.Play();
         }
+        SetState(AudioPlaybackState.Playing);
     }
 
     public void TogglePlayPause()
@@ -106,36 +165,100 @@ public sealed class AudioPlayerService : IDisposable
 
     public void Stop()
     {
-        if (_streamHandle != 0)
+        string? tempToDelete;
+        lock (_sync)
         {
-            NativeBass.BASS_ChannelStop(_streamHandle);
-            NativeBass.BASS_StreamFree(_streamHandle);
-            _streamHandle = 0;
+            try { _outputDevice?.Stop(); } catch { }
+            _outputDevice?.Dispose();
+            _outputDevice = null;
+
+            _reader?.Dispose();
+            _reader = null;
+
+            tempToDelete = _tempDecodedWav;
+            _tempDecodedWav = null;
         }
+
+        if (tempToDelete is not null)
+            TryDeleteFile(tempToDelete);
+
         SetState(AudioPlaybackState.Stopped);
     }
 
     public void Seek(TimeSpan position)
     {
-        if (_streamHandle == 0) return;
-        double seconds = Math.Clamp(position.TotalSeconds, 0, Duration.TotalSeconds);
-        long bytes = NativeBass.BASS_ChannelSeconds2Bytes(_streamHandle, seconds);
-        if (bytes >= 0)
+        lock (_sync)
         {
-            NativeBass.BASS_ChannelSetPosition(_streamHandle, bytes, NativeBass.BASS_POS_BYTE);
+            if (_reader is null) return;
+            double clamped = Math.Clamp(position.TotalSeconds, 0, _reader.TotalTime.TotalSeconds);
+            _reader.CurrentTime = TimeSpan.FromSeconds(clamped);
         }
     }
 
     public void PollPlaybackState()
     {
-        if (_streamHandle != 0 && _state == AudioPlaybackState.Playing)
+        bool stopped = false;
+        lock (_sync)
         {
-            int active = NativeBass.BASS_ChannelIsActive(_streamHandle);
-            if (active == NativeBass.BASS_ACTIVE_STOPPED)
+            if (_outputDevice is not null && _state == AudioPlaybackState.Playing &&
+                _outputDevice.PlaybackState == PlaybackState.Stopped)
             {
-                SetState(AudioPlaybackState.Stopped);
+                stopped = true;
             }
         }
+        if (stopped)
+            SetState(AudioPlaybackState.Stopped);
+    }
+
+    private static string? TryDecodeToTempWav(string sourceFile)
+    {
+        string? ffmpeg = DvdVideoConverter.FindFfmpeg();
+        if (string.IsNullOrWhiteSpace(ffmpeg)) return null;
+
+        string tempWav = Path.Combine(Path.GetTempPath(), $"cdburner10_play_{Guid.NewGuid():N}.wav");
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            psi.ArgumentList.Add("-y");
+            psi.ArgumentList.Add("-hide_banner");
+            psi.ArgumentList.Add("-loglevel");
+            psi.ArgumentList.Add("error");
+            psi.ArgumentList.Add("-i");
+            psi.ArgumentList.Add(sourceFile);
+            psi.ArgumentList.Add("-vn");
+            psi.ArgumentList.Add("-ar");
+            psi.ArgumentList.Add("44100");
+            psi.ArgumentList.Add("-ac");
+            psi.ArgumentList.Add("2");
+            psi.ArgumentList.Add("-c:a");
+            psi.ArgumentList.Add("pcm_s16le");
+            psi.ArgumentList.Add(tempWav);
+
+            using var process = Process.Start(psi);
+            if (process is null) return null;
+            process.WaitForExit(30_000);
+            if (process.ExitCode == 0 && File.Exists(tempWav))
+                return tempWav;
+        }
+        catch
+        {
+            // Ignore decode errors
+        }
+
+        TryDeleteFile(tempWav);
+        return null;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { File.Delete(path); } catch { }
     }
 
     private void SetState(AudioPlaybackState newState)
