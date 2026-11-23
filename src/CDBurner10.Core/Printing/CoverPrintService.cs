@@ -20,6 +20,18 @@ public sealed record CoverLayoutDimensions(
     double HeightMm,
     double SpineWidthMm = 0);
 
+public sealed record CoverPrintPlan(
+    string JobTitle,
+    CoverLayoutDimensions Dimensions,
+    double WidthDips,
+    double HeightDips,
+    IReadOnlyList<double> SpineGuideOffsetsMm,
+    string DisplayTitle,
+    string Subtitle,
+    IReadOnlyList<IReadOnlyList<string>> Columns,
+    string? BackgroundImagePath,
+    bool PreferLandscape);
+
 public sealed class CoverPrintJob
 {
     public CoverType CoverType { get; set; } = CoverType.StandardCdFront;
@@ -33,6 +45,9 @@ public sealed class CoverPrintJob
 
 public static class CoverPrintService
 {
+    public const double DipsPerInch = 96.0;
+    public const double MmPerInch = 25.4;
+
     private static readonly IReadOnlyDictionary<CoverType, CoverLayoutDimensions> Layouts =
         new Dictionary<CoverType, CoverLayoutDimensions>
         {
@@ -49,12 +64,83 @@ public static class CoverPrintService
 
     public static CoverLayoutDimensions GetDimensions(CoverType type) => Layouts[type];
 
+    public static double MmToDips(double millimeters) => millimeters / MmPerInch * DipsPerInch;
+
     public static (int WidthPx, int HeightPx) GetPixelSize(CoverType type, int dpi = 300)
     {
         var dims = Layouts[type];
-        int w = (int)Math.Round(dims.WidthMm / 25.4 * dpi);
-        int h = (int)Math.Round(dims.HeightMm / 25.4 * dpi);
+        int w = (int)Math.Round(dims.WidthMm / MmPerInch * dpi);
+        int h = (int)Math.Round(dims.HeightMm / MmPerInch * dpi);
         return (w, h);
+    }
+
+    public static string GetJobTitle(CoverPrintJob job)
+    {
+        var title = job.Title.Trim();
+        return string.IsNullOrWhiteSpace(title)
+            ? "CDBurner10 Disc Cover"
+            : $"CDBurner10 - {title}";
+    }
+
+    public static IReadOnlyList<string> FormatItems(CoverPrintJob job)
+    {
+        var formatted = new List<string>(job.Items.Count);
+        for (int i = 0; i < job.Items.Count; i++)
+        {
+            formatted.Add(job.ShowNumbers ? $"{i + 1:D2}. {job.Items[i]}" : job.Items[i]);
+        }
+        return formatted;
+    }
+
+    public static IReadOnlyList<IReadOnlyList<string>> SplitItemsIntoColumns(CoverPrintJob job)
+    {
+        var formatted = FormatItems(job);
+        if (formatted.Count == 0)
+            return [];
+
+        int colCount = Math.Min(Math.Max(1, job.Columns), formatted.Count);
+        int baseSize = formatted.Count / colCount;
+        int remainder = formatted.Count % colCount;
+        int offset = 0;
+
+        var columns = new List<IReadOnlyList<string>>(colCount);
+        for (int c = 0; c < colCount; c++)
+        {
+            int take = baseSize + (c < remainder ? 1 : 0);
+            columns.Add(formatted.Skip(offset).Take(take).ToList());
+            offset += take;
+        }
+        return columns;
+    }
+
+    public static IReadOnlyList<double> GetSpineGuideOffsetsMm(CoverType type)
+    {
+        var dims = Layouts[type];
+        if (dims.SpineWidthMm <= 0)
+            return [];
+
+        return type switch
+        {
+            CoverType.StandardCdBack => [dims.SpineWidthMm, dims.WidthMm - dims.SpineWidthMm],
+            CoverType.DvdCase => [(dims.WidthMm - dims.SpineWidthMm) / 2.0, (dims.WidthMm + dims.SpineWidthMm) / 2.0],
+            _ => []
+        };
+    }
+
+    public static CoverPrintPlan CreatePrintPlan(CoverPrintJob job)
+    {
+        var dims = GetDimensions(job.CoverType);
+        return new CoverPrintPlan(
+            JobTitle: GetJobTitle(job),
+            Dimensions: dims,
+            WidthDips: MmToDips(dims.WidthMm),
+            HeightDips: MmToDips(dims.HeightMm),
+            SpineGuideOffsetsMm: GetSpineGuideOffsetsMm(job.CoverType),
+            DisplayTitle: job.Title.Trim(),
+            Subtitle: job.Subtitle.Trim(),
+            Columns: SplitItemsIntoColumns(job),
+            BackgroundImagePath: job.BackgroundImagePath,
+            PreferLandscape: dims.WidthMm > 190.0 && dims.WidthMm > dims.HeightMm);
     }
 
     public static string FormatTrackListText(CoverPrintJob job)
@@ -73,40 +159,11 @@ public static class CoverPrintService
             sb.AppendLine(new string('-', 32));
         }
 
-        for (int i = 0; i < job.Items.Count; i++)
+        foreach (var line in FormatItems(job))
         {
-            if (job.ShowNumbers)
-                sb.AppendLine($"{i + 1:D2}. {job.Items[i]}");
-            else
-                sb.AppendLine(job.Items[i]);
+            sb.AppendLine(line);
         }
 
-        return sb.ToString();
-    }
-
-    public static string GeneratePrintableHtml(CoverPrintJob job)
-    {
-        var dims = GetDimensions(job.CoverType);
-        var sb = new StringBuilder();
-        sb.AppendLine("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>");
-        sb.AppendLine($"@page {{ size: auto; margin: 10mm; }}");
-        sb.AppendLine($"body {{ font-family: 'Segoe UI', sans-serif; margin: 0; padding: 12px; }}");
-        sb.AppendLine($".cover {{ width: {dims.WidthMm:F1}mm; height: {dims.HeightMm:F1}mm; border: 1px dashed #666; box-sizing: border-box; padding: 6mm; overflow: hidden; position: relative; }}");
-        sb.AppendLine(".title { font-size: 16pt; font-weight: 600; margin-bottom: 2mm; }");
-        sb.AppendLine(".subtitle { font-size: 10pt; color: #555; margin-bottom: 4mm; }");
-        sb.AppendLine($".items {{ font-size: 9pt; column-count: {Math.Max(1, job.Columns)}; line-height: 1.4; }}");
-        sb.AppendLine("</style></head><body><div class=\"cover\">");
-        if (!string.IsNullOrWhiteSpace(job.Title))
-            sb.AppendLine($"<div class=\"title\">{System.Net.WebUtility.HtmlEncode(job.Title)}</div>");
-        if (!string.IsNullOrWhiteSpace(job.Subtitle))
-            sb.AppendLine($"<div class=\"subtitle\">{System.Net.WebUtility.HtmlEncode(job.Subtitle)}</div>");
-        sb.AppendLine("<div class=\"items\">");
-        for (int i = 0; i < job.Items.Count; i++)
-        {
-            var text = job.ShowNumbers ? $"{i + 1:D2}. {job.Items[i]}" : job.Items[i];
-            sb.AppendLine($"<div>{System.Net.WebUtility.HtmlEncode(text)}</div>");
-        }
-        sb.AppendLine("</div></div></body></html>");
         return sb.ToString();
     }
 }

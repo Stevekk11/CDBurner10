@@ -190,7 +190,7 @@
                                     Click="PrintCoverButton_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Glyph="&#xE749;" FontSize="15" />
-                                        <TextBlock Text="Print Cover (HTML)" />
+                                        <TextBlock Text="Print Cover" />
                                     </StackPanel>
                                 </Button>
                                 <Button Click="ExportPngButton_Click">
