@@ -10,7 +10,10 @@
     DefaultButton="Primary"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
-    <StackPanel Spacing="12" MinWidth="520">
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">760</x:Double>
+    </ContentDialog.Resources>
+    <StackPanel Spacing="12" MinWidth="640">
         <InfoBar x:Name="StatusInfoBar" IsOpen="False" IsClosable="False" />
 
         <Grid ColumnSpacing="8">
