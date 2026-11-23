@@ -101,12 +101,12 @@ public sealed partial class RipAudioCdDialog : ContentDialog
     private async void ContentDialog_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
         args.Cancel = true; // Keep dialog open to show export result
-        var folder = await FilePickerHelper.PickFolderAsync(PickerLocationId.MusicLibrary);
-        if (string.IsNullOrWhiteSpace(folder)) return;
-
         var deferral = args.GetDeferral();
         try
         {
+            var folder = await FilePickerHelper.PickFolderAsync(PickerLocationId.MusicLibrary);
+            if (string.IsNullOrWhiteSpace(folder)) return;
+
             var ripped = await RipSelectedAsync(exportFolder: folder);
             if (ripped is { Count: > 0 })
             {
