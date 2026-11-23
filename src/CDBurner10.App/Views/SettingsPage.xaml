@@ -64,9 +64,10 @@
                             <ComboBoxItem Content="System Default (English)" Tag="" />
                             <ComboBoxItem Content="English (en-US)" Tag="en-US" />
                             <ComboBoxItem Content="Deutsch (de-DE)" Tag="de-DE" />
-                            <ComboBoxItem Content="Français (fr-FR)" Tag="fr-FR" />
-                            <ComboBoxItem Content="Español (es-ES)" Tag="es-ES" />
+                            <ComboBoxItem Content="Čeština (cs-CZ)" Tag="cs-CZ" />
                             <ComboBoxItem Content="Polski (pl-PL)" Tag="pl-PL" />
+                            <ComboBoxItem Content="Slovenčina (sk-SK)" Tag="sk-SK" />
+                            <ComboBoxItem Content="Español (es-ES)" Tag="es-ES" />
                         </ComboBox>
                     </Grid>
 

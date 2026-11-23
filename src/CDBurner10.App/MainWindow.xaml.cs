@@ -38,6 +38,14 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ConfigureWindowChrome();
 
+        // Initialize localization from saved AppLanguage (or Windows UI culture)
+        LocalizationService.Current.SetLanguage(AppServices.Current.Settings.Current.AppLanguage);
+        LocalizationService.Current.LanguageChanged += (_, _) =>
+            DispatcherQueue.TryEnqueue(() => LocalizationService.Current.TranslateTree(Content as DependencyObject));
+        ContentFrame.Navigated += (_, _) =>
+            DispatcherQueue.TryEnqueue(() => LocalizationService.Current.TranslateTree(Content as DependencyObject));
+        LocalizationService.Current.TranslateTree(Content as DependencyObject);
+
         AppServices.Current.NavigationHandler = NavigateTo;
         AppServices.Current.DrivesRefreshed += (_, _) => DispatcherQueue.TryEnqueue(UpdateDriveBar);
         AppServices.Current.PropertyChanged += (_, e) =>

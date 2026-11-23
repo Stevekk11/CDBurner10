@@ -80,7 +80,12 @@ public sealed partial class SettingsPage : Page
         if (_loading) return;
         var s = AppServices.Current.Settings.Current;
 
+        string prevLang = s.AppLanguage;
         s.AppLanguage = GetSelectedTag(LanguageComboBox);
+        if (!string.Equals(prevLang, s.AppLanguage, StringComparison.OrdinalIgnoreCase))
+        {
+            LocalizationService.Current.SetLanguage(s.AppLanguage);
+        }
         s.StartLastUsedProjectType = RememberLastProjectToggle.IsOn;
         s.DataAskForSettings = AskHowToBurnDataToggle.IsOn;
         s.ExitToNotify = ExitToTrayToggle.IsOn;
@@ -204,6 +209,7 @@ public sealed partial class SettingsPage : Page
     private async void AboutButton_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new AboutDialog { XamlRoot = XamlRoot };
+        LocalizationService.Current.TranslateTree(dialog);
         await dialog.ShowAsync();
     }
 
