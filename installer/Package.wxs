@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="CDBurner10"
+           Manufacturer="CDBurner10"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="A9E4C5E8-7B1F-4B5D-9E64-2C8D5E19F401"
+           Scope="perMachine"
+           Language="1033"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="CDBurner10 Optical Media Suite Installer"
+                        Manufacturer="CDBurner10" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+                  AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.AppIconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Stevekk11/CDBurner10" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Stevekk11/CDBurner10" />
+    <Property Id="ARPCOMMENTS" Value="Modern .NET 10 + WinUI 3 optical burning, ripping, and DVD archiving suite." />
+
+    <!-- Default install location for FeatureTree UI -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicensePath)" />
+
+    <ui:WixUI Id="WixUI_FeatureTree" />
+
+    <!-- Directory structure -->
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="CDBurner10" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="CDBurner10" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- Core application files harvested from deploy\ -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component Id="MainExecutableComponent" Guid="B7F1E2A9-4C3D-48E5-9A12-1F2E3D4C5B01">
+        <File Id="CDBurner10Exe" Source="$(var.DeployDir)\CDBurner10.exe" KeyPath="yes" />
+      </Component>
+      <Files Include="$(var.DeployDir)\**">
+        <Exclude Files="$(var.DeployDir)\CDBurner10.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- Start Menu shortcuts -->
+    <ComponentGroup Id="StartMenuShortcuts" Directory="ApplicationProgramsFolder">
+      <Component Id="StartMenuShortcutComponent" Guid="C4A3B7E1-8D24-4C95-A761-3E4890B2F102">
+        <Shortcut Id="AppStartMenuShortcut"
+                  Name="CDBurner10"
+                  Description="Optical media burning, audio CD ripping, and DVD archiving suite"
+                  Target="[INSTALLFOLDER]CDBurner10.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <Shortcut Id="UninstallStartMenuShortcut"
+                  Name="Uninstall CDBurner10"
+                  Description="Uninstall CDBurner10"
+                  Target="[SystemFolder]msiexec.exe"
+                  Arguments="/x [ProductCode]" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\CDBurner10\Installer"
+                       Name="StartMenuShortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Optional Desktop shortcut -->
+    <ComponentGroup Id="DesktopShortcuts" Directory="DesktopFolder">
+      <Component Id="DesktopShortcutComponent" Guid="D8B912F3-3A14-4F8A-9B01-7C654321E203">
+        <Shortcut Id="AppDesktopShortcut"
+                  Name="CDBurner10"
+                  Description="CDBurner10 Optical Media Suite"
+                  Target="[INSTALLFOLDER]CDBurner10.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\CDBurner10\Installer"
+                       Name="DesktopShortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Optional File Associations (.dxp, .axp, .iso) -->
+    <ComponentGroup Id="FileAssociations" Directory="INSTALLFOLDER">
+      <Component Id="FileAssocComponent" Guid="E1F2A3B4-5C6D-4E7F-8A9B-0C1D2E3F4A04">
+        <RegistryValue Root="HKLM"
+                       Key="Software\CDBurner10\Installer"
+                       Name="FileAssociations"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+
+        <ProgId Id="CDBurner10.DataCompilation" Description="CDBurner10 Data Disc Compilation" Icon="CDBurner10Exe" IconIndex="0">
+          <Extension Id="dxp" ContentType="application/xml">
+            <Verb Id="open" Command="Open" TargetFile="CDBurner10Exe" Argument='"%1"' />
+          </Extension>
+        </ProgId>
+
+        <ProgId Id="CDBurner10.AudioCompilation" Description="CDBurner10 Audio CD Compilation" Icon="CDBurner10Exe" IconIndex="0">
+          <Extension Id="axp" ContentType="application/xml">
+            <Verb Id="open" Command="Open" TargetFile="CDBurner10Exe" Argument='"%1"' />
+          </Extension>
+        </ProgId>
+
+        <ProgId Id="CDBurner10.IsoImage" Description="Disc Image File" Icon="CDBurner10Exe" IconIndex="0">
+          <Extension Id="iso" ContentType="application/x-iso9660-image">
+            <Verb Id="burn" Command="Burn with CDBurner10" TargetFile="CDBurner10Exe" Argument='/oi "%1"' />
+          </Extension>
+        </ProgId>
+      </Component>
+    </ComponentGroup>
+
+    <!-- Optional CLI on System PATH -->
+    <ComponentGroup Id="CliPathIntegration" Directory="INSTALLFOLDER">
+      <Component Id="CliPathComponent" Guid="F4E5D6C7-8B9A-4012-B3C4-D5E6F7A8B905">
+        <Environment Id="AddInstallFolderToPath"
+                     Name="PATH"
+                     Value="[INSTALLFOLDER]"
+                     Permanent="no"
+                     Part="last"
+                     Action="set"
+                     System="yes" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\CDBurner10\Installer"
+                       Name="CliPath"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Installable Features -->
+    <Feature Id="CoreApplication"
+             Title="CDBurner10 Application"
+             Description="WinUI 3 desktop app, cdbxpcmd CLI, StarBurnX burning engine, BASS audio, and DVD tools."
+             Level="1"
+             AllowAbsent="no"
+             ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="StartMenuShortcuts" />
+    </Feature>
+
+    <Feature Id="DesktopShortcutFeature"
+             Title="Desktop Shortcut"
+             Description="Create a CDBurner10 shortcut on your Desktop."
+             Level="1">
+      <ComponentGroupRef Id="DesktopShortcuts" />
+    </Feature>
+
+    <Feature Id="FileAssociationsFeature"
+             Title="File Associations (.dxp, .axp, .iso)"
+             Description="Associate .dxp and .axp compilations and add 'Burn with CDBurner10' for .iso files."
+             Level="1">
+      <ComponentGroupRef Id="FileAssociations" />
+    </Feature>
+
+    <Feature Id="CliPathFeature"
+             Title="Add CLI (cdbxpcmd) to System PATH"
+             Description="Allow running cdbxpcmd from any Command Prompt or PowerShell window."
+             Level="1">
+      <ComponentGroupRef Id="CliPathIntegration" />
+    </Feature>
+
+  </Package>
+</Wix>

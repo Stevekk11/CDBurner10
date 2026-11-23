@@ -2,8 +2,11 @@
 bin/
 obj/
 deploy/
+installer/out/
 TestResults/
 *.zip
+*.msi
+*.wixpdb
 third_party/
 
 # Visual Studio / Rider / VS Code
