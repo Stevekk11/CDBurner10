@@ -15,6 +15,8 @@ public sealed record DiscPreset(string Name, long CapacityBytes, double Capacity
     public override string ToString() => Name;
 }
 
+public sealed record AudioBarSegment(string Label, double DurationSeconds);
+
 public sealed partial class DiscCapacityBar : UserControl
 {
     private static readonly DiscPreset[] DataPresets =
@@ -37,6 +39,28 @@ public sealed partial class DiscCapacityBar : UserControl
 
     private const double CdDataBytesPerAudioSecond = 2048.0 * 75.0; // 75 sectors/sec * 2048 B/sector
 
+    private static readonly Color[] NormalTrackPalette =
+    [
+        Color.FromArgb(255, 0, 120, 212),   // Fluent Blue
+        Color.FromArgb(255, 16, 137, 118),  // Teal
+        Color.FromArgb(255, 79, 107, 237),  // Indigo
+        Color.FromArgb(255, 14, 165, 233),  // Sky
+        Color.FromArgb(255, 16, 185, 129),  // Emerald
+        Color.FromArgb(255, 139, 92, 246),  // Violet
+    ];
+
+    private static readonly Color[] AmberTrackPalette =
+    [
+        Color.FromArgb(255, 217, 119, 6),
+        Color.FromArgb(255, 245, 158, 11),
+    ];
+
+    private static readonly Color[] RedTrackPalette =
+    [
+        Color.FromArgb(255, 220, 38, 38),
+        Color.FromArgb(255, 239, 68, 68),
+    ];
+
     private bool _isAudioMode;
     private long _usedBytes;
     private double _usedSeconds;
@@ -45,6 +69,7 @@ public sealed partial class DiscCapacityBar : UserControl
     private long _capacityBytes = 734_003_200L;
     private double _capacitySeconds = 80 * 60;
     private bool _suppressSelectionChanged;
+    private IReadOnlyList<AudioBarSegment> _audioTracks = [];
 
     public event EventHandler? CapacityChanged;
 
@@ -56,7 +81,7 @@ public sealed partial class DiscCapacityBar : UserControl
             if (_isAudioMode == value) return;
             _isAudioMode = value;
             LoadPresets();
-            UpdateVisuals();
+            ApplyInsertedDisc(AppServices.Current.SelectedDriveDiscInfo);
         }
     }
 
@@ -78,6 +103,13 @@ public sealed partial class DiscCapacityBar : UserControl
             _usedSeconds = Math.Max(0, value);
             UpdateVisuals();
         }
+    }
+
+    public void SetAudioTracks(IReadOnlyList<AudioBarSegment> tracks)
+    {
+        _audioTracks = tracks ?? [];
+        _usedSeconds = Math.Max(0, _audioTracks.Sum(t => Math.Max(0, t.DurationSeconds)));
+        UpdateVisuals();
     }
 
     public long ExistingUsedBytes
@@ -138,6 +170,8 @@ public sealed partial class DiscCapacityBar : UserControl
 
     public void ApplyInsertedDisc(DiscInfoModel? info)
     {
+        bool capacityUpdated = false;
+
         if (info is not null && info.HasDisc && !info.IsBlank && info.UsedSizeBytes > 0)
         {
             _existingUsedBytes = info.UsedSizeBytes;
@@ -149,7 +183,60 @@ public sealed partial class DiscCapacityBar : UserControl
             _existingUsedSeconds = 0;
         }
 
+        if (info is not null && info.HasDisc && info.TotalSizeBytes > 0)
+        {
+            if (_isAudioMode && info.IsCd)
+            {
+                double detectedSeconds = info.TotalSizeBytes / CdDataBytesPerAudioSecond;
+                double detectedMinutes = detectedSeconds / 60.0;
+                int presetIdx = detectedMinutes switch
+                {
+                    < 77.0 => 0,  // 74 min
+                    < 85.0 => 1,  // 80 min
+                    < 94.5 => 2,  // 90 min
+                    _ => 3        // 99 min
+                };
+
+                _capacityBytes = info.TotalSizeBytes;
+                _capacitySeconds = detectedSeconds;
+                SelectPresetSilently(presetIdx);
+                capacityUpdated = true;
+            }
+            else if (!_isAudioMode)
+            {
+                int presetIdx;
+                if (info.IsCd || info.TotalSizeBytes < 1_500_000_000L)
+                    presetIdx = 0; // CD (700 MB)
+                else if (info.DiscType is OpticalDiscType.DvdRDl or OpticalDiscType.DvdPlusRDl ||
+                         (info.TotalSizeBytes >= 6_000_000_000L && info.TotalSizeBytes < 15_000_000_000L))
+                    presetIdx = 2; // DVD-DL (8.5 GB)
+                else if (info.TotalSizeBytes < 6_000_000_000L)
+                    presetIdx = 1; // DVD (4.7 GB)
+                else if (info.DiscType == OpticalDiscType.BdRDl || info.TotalSizeBytes >= 35_000_000_000L)
+                    presetIdx = 4; // Blu-ray DL (50 GB)
+                else
+                    presetIdx = 3; // Blu-ray (25 GB)
+
+                _capacityBytes = info.TotalSizeBytes;
+                _capacitySeconds = info.IsCd ? info.TotalSizeBytes / CdDataBytesPerAudioSecond : 0;
+                SelectPresetSilently(presetIdx);
+                capacityUpdated = true;
+            }
+        }
+
         UpdateVisuals();
+        if (capacityUpdated)
+        {
+            CapacityChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void SelectPresetSilently(int index)
+    {
+        if (index < 0 || index >= PresetComboBox.Items.Count) return;
+        _suppressSelectionChanged = true;
+        PresetComboBox.SelectedIndex = index;
+        _suppressSelectionChanged = false;
     }
 
     public void SetCustomCapacity(long bytes)
@@ -266,9 +353,22 @@ public sealed partial class DiscCapacityBar : UserControl
             ExistingBarFill.Width = existingWidth;
             ExistingBarFill.CornerRadius = newWidth > 0 ? new CornerRadius(5, 0, 0, 5) : new CornerRadius(5);
 
-            BarFill.Margin = new Thickness(existingWidth, 0, 0, 0);
-            BarFill.Width = newWidth;
-            BarFill.CornerRadius = existingWidth > 0 ? new CornerRadius(0, 5, 5, 0) : new CornerRadius(5);
+            bool renderPerTrack = _isAudioMode && _audioTracks.Count > 0 && _capacitySeconds > 0;
+            if (renderPerTrack)
+            {
+                BarFill.Visibility = Visibility.Collapsed;
+                TrackSegmentsCanvas.Visibility = Visibility.Visible;
+                RenderAudioTrackSegments(trackWidth, existingWidth, totalRatio);
+            }
+            else
+            {
+                TrackSegmentsCanvas.Visibility = Visibility.Collapsed;
+                TrackSegmentsCanvas.Children.Clear();
+                BarFill.Visibility = Visibility.Visible;
+                BarFill.Margin = new Thickness(existingWidth, 0, 0, 0);
+                BarFill.Width = newWidth;
+                BarFill.CornerRadius = existingWidth > 0 ? new CornerRadius(0, 5, 5, 0) : new CornerRadius(5);
+            }
 
             WarningMarker.Margin = new Thickness(trackWidth * 0.9, 0, 0, 0);
         }
@@ -326,6 +426,60 @@ public sealed partial class DiscCapacityBar : UserControl
             {
                 RemainingText.Text = $"Exceeds capacity by {FormatHelper.FormatBytes(totalBytes - _capacityBytes)} ({pct:0.#}%)";
             }
+        }
+    }
+
+    private void RenderAudioTrackSegments(double trackWidth, double existingWidth, double totalRatio)
+    {
+        TrackSegmentsCanvas.Children.Clear();
+        TrackSegmentsCanvas.Width = trackWidth;
+
+        Color[] palette = totalRatio > 1.0
+            ? RedTrackPalette
+            : totalRatio >= 0.90
+                ? AmberTrackPalette
+                : NormalTrackPalette;
+
+        double cursorX = existingWidth;
+        const double gapPx = 1.0;
+
+        for (int i = 0; i < _audioTracks.Count; i++)
+        {
+            if (cursorX >= trackWidth) break;
+
+            var seg = _audioTracks[i];
+            if (seg.DurationSeconds <= 0) continue;
+
+            double rawW = (seg.DurationSeconds / _capacitySeconds) * trackWidth;
+            double remaining = trackWidth - cursorX;
+            double clampedW = Math.Min(rawW, remaining);
+            bool hasNext = i < _audioTracks.Count - 1 && (cursorX + clampedW) < trackWidth;
+            double drawW = hasNext && clampedW > (gapPx + 1.5) ? clampedW - gapPx : clampedW;
+            if (drawW < 1.0) drawW = Math.Min(1.0, remaining);
+
+            bool roundLeft = i == 0 && existingWidth <= 0.5;
+            bool roundRight = !hasNext || (cursorX + drawW) >= trackWidth - 0.5;
+
+            var border = new Border
+            {
+                Width = drawW,
+                Height = 10,
+                Background = new SolidColorBrush(palette[i % palette.Length]),
+                CornerRadius = new CornerRadius(
+                    roundLeft ? 5 : 0,
+                    roundRight ? 5 : 0,
+                    roundRight ? 5 : 0,
+                    roundLeft ? 5 : 0)
+            };
+
+            string tip = $"{seg.Label} ({FormatHelper.FormatDuration(TimeSpan.FromSeconds(seg.DurationSeconds))})";
+            ToolTipService.SetToolTip(border, tip);
+
+            Canvas.SetLeft(border, cursorX);
+            Canvas.SetTop(border, 0);
+            TrackSegmentsCanvas.Children.Add(border);
+
+            cursorX += clampedW;
         }
     }
 }

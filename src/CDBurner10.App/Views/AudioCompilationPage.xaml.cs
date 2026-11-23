@@ -1,3 +1,4 @@
+using CDBurner10.App.Controls;
 using CDBurner10.App.Services;
 using CDBurner10.App.ViewModels;
 using CDBurner10.Core.Audio;
@@ -19,8 +20,8 @@ public sealed partial class AudioCompilationPage : Page
     public AudioCompilationPage()
     {
         InitializeComponent();
-        ViewModel.TotalDurationChanged += (_, seconds) => CapacityBar.UsedSeconds = seconds;
-        CapacityBar.UsedSeconds = ViewModel.Compilation.TotalDuration.TotalSeconds;
+        ViewModel.TotalDurationChanged += (_, _) => SyncCapacityBarTracks();
+        SyncCapacityBarTracks();
 
         var savedPath = AppServices.Current.Settings.Current.AudioExplorerPath;
         if (!string.IsNullOrWhiteSpace(savedPath) && Directory.Exists(savedPath))
@@ -44,6 +45,16 @@ public sealed partial class AudioCompilationPage : Page
             ViewModel.UpdatePlayerPosition();
             UpdatePlayPauseIcon();
         };
+    }
+
+    private void SyncCapacityBarTracks()
+    {
+        var segments = ViewModel.Compilation.Tracks
+            .Select((t, i) => new AudioBarSegment(
+                $"{i + 1:D2}. {(string.IsNullOrWhiteSpace(t.Title) ? Path.GetFileNameWithoutExtension(t.FileName) : t.Title)}",
+                t.Duration.TotalSeconds + t.PreGap.TotalSeconds + t.PostGap.TotalSeconds))
+            .ToList();
+        CapacityBar.SetAudioTracks(segments);
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
