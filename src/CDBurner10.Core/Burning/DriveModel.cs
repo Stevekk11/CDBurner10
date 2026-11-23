@@ -70,8 +70,8 @@ public sealed class DriveModel
     public string Vendor { get; }
     public string Product { get; }
     public string Revision { get; }
-    public int MaxWriteSpeed { get; }
-    public int MaxReadSpeed { get; }
+    public int MaxWriteSpeed { get; private set; }
+    public int MaxReadSpeed { get; private set; }
     public OpticalDiscType SupportedMediaRead { get; }
     public OpticalDiscType SupportedMediaWrite { get; }
     public bool SupportTestWrite { get; }
@@ -222,6 +222,12 @@ public sealed class DriveModel
             Imapi2Interop.SafeRelease(recorder);
         }
 
+        if (!string.IsNullOrWhiteSpace(Letter))
+        {
+            int liveRead = ScsiOpticalDevice.QueryMaxReadSpeedKBps(Letter);
+            if (liveRead > 0) MaxReadSpeed = liveRead;
+        }
+
         SupportedWriteSpeeds = writeSpeeds;
         SupportedReadSpeeds = BuildReadSpeedPresets(MaxReadSpeed, detectedMedia);
     }
@@ -254,30 +260,25 @@ public sealed class DriveModel
         }
 
         int maxRealisticKBps = (int)Math.Round(multipliers[0] * base1xKBps);
-        int capKBps = maxReadKBps > 0 ? Math.Min(maxReadKBps, maxRealisticKBps) : (int)Math.Round((isCd ? 48 : isBd ? 12 : 16) * base1xKBps);
-
-        if (maxReadKBps > 0 && maxReadKBps <= maxRealisticKBps)
-        {
-            list.Add(new DriveSpeedModel(maxReadKBps, Math.Round(maxReadKBps / base1xKBps, 1)));
-        }
+        int minFloorKBps = (int)Math.Round((isCd ? 48 : isBd ? 12 : 16) * base1xKBps);
+        int capKBps = Math.Min(Math.Max(maxReadKBps, minFloorKBps), maxRealisticKBps);
 
         foreach (int mult in multipliers)
         {
             int kbps = (int)Math.Round(mult * base1xKBps);
-            if (maxReadKBps > 0 && maxReadKBps <= maxRealisticKBps)
-            {
-                if (kbps >= maxReadKBps * 0.92)
-                    continue;
-            }
-            else if (kbps > capKBps)
-            {
+            if (kbps > capKBps + 5)
                 continue;
-            }
-
             list.Add(new DriveSpeedModel(kbps, mult));
         }
 
-        return list;
+        // If the drive reports a specific non-standard ceiling (e.g. 10x Silent Play), include it sorted
+        if (maxReadKBps > 0 && maxReadKBps <= maxRealisticKBps &&
+            !list.Any(s => s.SpeedKBps > 0 && Math.Abs(s.SpeedKBps - maxReadKBps) < base1xKBps * 0.4))
+        {
+            list.Add(new DriveSpeedModel(maxReadKBps, Math.Round(maxReadKBps / base1xKBps, 1)));
+        }
+
+        return [list[0], .. list.Skip(1).OrderByDescending(s => s.SpeedKBps)];
     }
 
     public DiscInfoModel GetDiscInfo(bool refresh = true)

@@ -635,8 +635,68 @@ internal static class ScsiOpticalDevice
         return new RawDiscLayout(isBlank, isErasable, isFinalized, sessions, usedBytes, freeBytes, totalBytes);
     }
 
+    public static int QueryMaxReadSpeedKBps(string driveLetter)
+    {
+        int best = 0;
+        try
+        {
+            using var handle = OpenDrive(driveLetter, writeAccess: true);
+            if (handle.IsInvalid) return 0;
+
+            // 1. GET PERFORMANCE (0xAC), DataType = 0x10 (Nominal Read Performance)
+            var perfBuf = new byte[8 + 16 * 16];
+            byte[] perfCdb = [0xAC, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 16, 0x00, 0x00];
+            if (SendScsiCommand(handle, perfCdb, perfBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
+            {
+                int dataLen = Math.Min(perfBuf.Length, (int)BinaryPrimitives.ReadUInt32BigEndian(perfBuf.AsSpan(0, 4)) + 4);
+                for (int p = 8; p + 16 <= dataLen; p += 16)
+                {
+                    int endPerf = (int)BinaryPrimitives.ReadUInt32BigEndian(perfBuf.AsSpan(p + 12, 4));
+                    if (endPerf > best && endPerf < 200_000) best = endPerf;
+                }
+            }
+
+            // 2. MODE SENSE (10) — Page 0x2A fallback
+            var modeBuf = new byte[128];
+            byte[] modeCdb = [0x5A, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)modeBuf.Length, 0x00];
+            if (SendScsiCommand(handle, modeCdb, modeBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
+            {
+                int blockDescLen = BinaryPrimitives.ReadUInt16BigEndian(modeBuf.AsSpan(6, 2));
+                int pageOffset = 8 + blockDescLen;
+                if (pageOffset + 10 <= modeBuf.Length && (modeBuf[pageOffset] & 0x3F) == 0x2A)
+                {
+                    int maxRead = BinaryPrimitives.ReadUInt16BigEndian(modeBuf.AsSpan(pageOffset + 8, 2));
+                    if (maxRead > best) best = maxRead;
+                }
+            }
+        }
+        catch { }
+        return best;
+    }
+
     public static void SetReadWriteSpeed(SafeFileHandle handle, int readKBps, int writeKBps)
     {
+        // 1. SET STREAMING (0xB6): clear prior caps with RDD=1 when Maximum (readKBps <= 0),
+        //    or set explicit read rate in KB/s for modern SATA drives that ignore 0xBB.
+        var streamDesc = new byte[28];
+        if (readKBps <= 0 && writeKBps <= 0)
+        {
+            streamDesc[0] = 0x04; // RDD (Restore Drive Defaults)
+        }
+        else
+        {
+            uint rRate = readKBps <= 0 ? 0x000186A0u : (uint)Math.Clamp(readKBps, 176, 100_000);
+            uint wRate = writeKBps <= 0 ? 0x000186A0u : (uint)Math.Clamp(writeKBps, 176, 100_000);
+            BinaryPrimitives.WriteUInt32BigEndian(streamDesc.AsSpan(8, 4), 0x003FFFFFu); // End LBA
+            BinaryPrimitives.WriteUInt32BigEndian(streamDesc.AsSpan(12, 4), rRate);
+            BinaryPrimitives.WriteUInt32BigEndian(streamDesc.AsSpan(16, 4), 1000); // 1000 ms
+            BinaryPrimitives.WriteUInt32BigEndian(streamDesc.AsSpan(20, 4), wRate);
+            BinaryPrimitives.WriteUInt32BigEndian(streamDesc.AsSpan(24, 4), 1000); // 1000 ms
+        }
+        byte[] streamCdb = [0xB6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 28, 0x00];
+        SendScsiCommand(handle, streamCdb, streamDesc, SCSI_IOCTL_DATA_OUT, 10, out _, out _, out _);
+
+        // 2. Legacy SET CD SPEED (0xBB)
         ushort readVal = readKBps <= 0 ? (ushort)0xFFFF : (ushort)Math.Clamp(readKBps, 1, 0xFFFE);
         ushort writeVal = writeKBps <= 0 ? (ushort)0xFFFF : (ushort)Math.Clamp(writeKBps, 1, 0xFFFE);
         byte[] cdb =
