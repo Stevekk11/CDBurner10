@@ -87,6 +87,8 @@ public sealed class DriveModel
         UniqueId = uniqueId;
         Index = index;
 
+        OpticalDiscType imapiReadMask = OpticalDiscType.None;
+        OpticalDiscType imapiWriteMask = OpticalDiscType.None;
         IDiscRecorder2? recorder = null;
         try
         {
@@ -108,6 +110,26 @@ public sealed class DriveModel
             }
             catch (COMException) { }
             Letter = letter;
+
+            try
+            {
+                foreach (var obj in recorder.SupportedProfiles ?? [])
+                {
+                    if (obj is int p && p > 0)
+                    {
+                        var mapped = ScsiOpticalDevice.MapProfileCode((ushort)p);
+                        if (mapped != OpticalDiscType.None)
+                        {
+                            imapiReadMask |= mapped;
+                            if ((mapped & (OpticalDiscType.CdRom | OpticalDiscType.DvdRom | OpticalDiscType.BdRom | OpticalDiscType.HdDvdRom)) == 0)
+                            {
+                                imapiWriteMask |= mapped;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (COMException) { }
         }
         finally
         {
@@ -121,8 +143,13 @@ public sealed class DriveModel
             MaxWriteSpeed = caps.MaxWriteSpeedKBps;
             SupportTestWrite = caps.SupportsTestWrite;
             SupportBufferUnderrunProtection = caps.SupportsBufferUnderrunProtection;
-            SupportedMediaRead = caps.SupportedMediaRead;
-            SupportedMediaWrite = caps.SupportedMediaWrite;
+            SupportedMediaRead = imapiReadMask | caps.SupportedMediaRead;
+            SupportedMediaWrite = imapiWriteMask | caps.SupportedMediaWrite;
+        }
+        else
+        {
+            SupportedMediaRead = imapiReadMask;
+            SupportedMediaWrite = imapiWriteMask;
         }
 
         RefreshSpeeds();
@@ -193,27 +220,51 @@ public sealed class DriveModel
             RefreshSpeeds();
         }
 
-        // First query SCSI profile & layout (works for ALL discs: Audio CD, DVD-ROM, blank, multi-session, unfinalized)
-        var discType = ScsiOpticalDevice.QueryCurrentMediaProfile(Letter);
-        bool unitReady = ScsiOpticalDevice.IsUnitReady(Letter);
-        if (!unitReady && discType == OpticalDiscType.None)
-        {
-            return DiscInfoModel.Empty;
-        }
+        var discType = OpticalDiscType.None;
+        bool imapiHasCssFeature = false;
+        long totalBytes = 0;
+        long usedBytes = 0;
+        long freeBytes = 0;
+        bool isBlank = false;
+        bool isFinalized = false;
 
-        var layout = ScsiOpticalDevice.QueryDiscLayout(Letter);
-        long totalBytes = layout.TotalBytes;
-        long usedBytes = layout.UsedBytes;
-        long freeBytes = layout.FreeBytes;
-        bool isBlank = layout.IsBlank;
-        bool isFinalized = layout.IsFinalized;
-
-        // Refine with IMAPI2 IDiscFormat2Data when writable media is inserted
+        // 1. Query IMAPI2 CurrentProfiles + CurrentFeaturePages (works for ALL discs, including DVD-ROM/CD-ROM, without Admin)
         IDiscRecorder2? recorder = null;
         IDiscFormat2Data? format = null;
         try
         {
             recorder = OpenRecorder();
+            try
+            {
+                foreach (var obj in recorder.CurrentProfiles ?? [])
+                {
+                    if (obj is int p && p > 0)
+                    {
+                        var mapped = ScsiOpticalDevice.MapProfileCode((ushort)p);
+                        if (mapped != OpticalDiscType.None)
+                        {
+                            discType = mapped;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (COMException) { }
+
+            try
+            {
+                foreach (var obj in recorder.CurrentFeaturePages ?? [])
+                {
+                    if (obj is int f && f == 0x0106) // Feature 0x0106 = DVD CSS
+                    {
+                        imapiHasCssFeature = true;
+                        break;
+                    }
+                }
+            }
+            catch (COMException) { }
+
+            // Refine writable media info via IMAPI2 IDiscFormat2Data
             format = Imapi2Interop.CreateDiscFormat2Data();
             if (format.IsCurrentMediaSupported(recorder))
             {
@@ -227,7 +278,7 @@ public sealed class DriveModel
                 {
                     totalBytes = imapiTotal;
                     freeBytes = Math.Max(0, imapiFree);
-                    if (usedBytes == 0 && !format.MediaPhysicallyBlank)
+                    if (!format.MediaPhysicallyBlank)
                     {
                         usedBytes = Math.Max(0, totalBytes - freeBytes);
                     }
@@ -256,27 +307,86 @@ public sealed class DriveModel
             Imapi2Interop.SafeRelease(recorder);
         }
 
-        if (discType == OpticalDiscType.None && layout.Sessions.Count == 0 && totalBytes == 0)
+        // 2. Supplement with SCSI SPTI layout + profile (gives detailed multi-session/track info when available)
+        if (discType == OpticalDiscType.None)
         {
-            return DiscInfoModel.Empty;
+            discType = ScsiOpticalDevice.QueryCurrentMediaProfile(Letter);
         }
 
-        // Read Windows volume label if mounted
+        var layout = ScsiOpticalDevice.QueryDiscLayout(Letter);
+        IReadOnlyList<SessionModel> sessions = layout.Sessions;
+        if (sessions.Count == 0 && !isBlank)
+        {
+            sessions = ScsiOpticalDevice.QuerySessionsViaReadTocEx(Letter);
+        }
+
+        if (layout.IsBlank && totalBytes == 0) isBlank = true;
+        if (layout.IsFinalized) isFinalized = true;
+        if (usedBytes == 0 && layout.UsedBytes > 0) usedBytes = layout.UsedBytes;
+        if (freeBytes == 0 && layout.FreeBytes > 0) freeBytes = layout.FreeBytes;
+        if (totalBytes == 0 && layout.TotalBytes > 0) totalBytes = layout.TotalBytes;
+
+        // 3. Read Windows volume info (works for all mounted CD-ROM / DVD-ROM / BD-ROM discs without Admin)
         string label = string.Empty;
+        bool volumeReady = false;
         try
         {
             var di = new DriveInfo($"{Letter}:\\");
             if (di.IsReady)
             {
+                volumeReady = true;
                 label = di.VolumeLabel ?? string.Empty;
+                if (totalBytes == 0 && di.TotalSize > 0)
+                {
+                    totalBytes = di.TotalSize;
+                    freeBytes = Math.Max(0, di.TotalFreeSpace);
+                    usedBytes = Math.Max(0, totalBytes - freeBytes);
+                }
             }
         }
         catch { }
 
-        // Query DVD CSS copy protection & region mask
+        if (totalBytes == 0 && (discType != OpticalDiscType.None || volumeReady))
+        {
+            long rawLen = ScsiOpticalDevice.QueryDeviceLengthBytes(Letter);
+            if (rawLen > 0)
+            {
+                totalBytes = rawLen;
+                if (!isBlank && usedBytes == 0) usedBytes = rawLen;
+            }
+        }
+
+        if (usedBytes == 0 && sessions.Count > 0)
+        {
+            usedBytes = sessions.Sum(s => s.TotalSizeBytes);
+            if (totalBytes < usedBytes) totalBytes = usedBytes;
+        }
+
+        bool hasDisc = discType != OpticalDiscType.None || volumeReady || sessions.Count > 0 || totalBytes > 0;
+        if (!hasDisc)
+        {
+            return DiscInfoModel.Empty;
+        }
+
+        if (discType == OpticalDiscType.None && volumeReady)
+        {
+            discType = totalBytes > 900L * 1024 * 1024 ? OpticalDiscType.DvdRom : OpticalDiscType.CdRom;
+        }
+
+        if (discType is OpticalDiscType.CdRom or OpticalDiscType.DvdRom or OpticalDiscType.BdRom or OpticalDiscType.HdDvdRom)
+        {
+            isFinalized = true;
+        }
+
+        // 4. Query DVD CSS copy protection & region mask
         var (protection, regionMask) = BurningEngine.IsCdDisc(discType)
             ? (DiscProtectionSystem.None, 0)
             : ScsiOpticalDevice.QueryDvdCopyrightInfo(Letter);
+
+        if (protection == DiscProtectionSystem.None && imapiHasCssFeature)
+        {
+            protection = DiscProtectionSystem.Css;
+        }
 
         bool isErasable = layout.IsErasable || BurningEngine.IsDiscErasable(discType);
         bool nextSessionAllowed = !isFinalized;
@@ -294,7 +404,7 @@ public sealed class DriveModel
             nextSessionAllowed,
             HasDisc: true,
             regionMask,
-            layout.Sessions)
+            sessions)
         {
             ProtectionSystem = protection
         };

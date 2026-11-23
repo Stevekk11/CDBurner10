@@ -24,9 +24,12 @@ internal static class ScsiOpticalDevice
     private const uint OPEN_EXISTING = 3;
 
     private const uint IOCTL_SCSI_PASS_THROUGH_DIRECT = 0x0004D014;
+    private const uint IOCTL_STORAGE_CHECK_VERIFY2 = 0x002D0800;
     private const uint IOCTL_STORAGE_MEDIA_REMOVAL = 0x002D4804;
     private const uint IOCTL_STORAGE_EJECT_MEDIA = 0x002D4808;
     private const uint IOCTL_STORAGE_LOAD_MEDIA = 0x002D480C;
+    private const uint IOCTL_DISK_GET_LENGTH_INFO = 0x0007405C;
+    private const uint IOCTL_CDROM_READ_TOC_EX = 0x00024054;
 
     private const byte SCSI_IOCTL_DATA_OUT = 0;
     private const byte SCSI_IOCTL_DATA_IN = 1;
@@ -352,10 +355,20 @@ internal static class ScsiOpticalDevice
     {
         try
         {
-            using var handle = OpenDrive(driveLetter, writeAccess: false);
-            if (handle.IsInvalid) return false;
-            byte[] cdb = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00]; // TEST UNIT READY
-            return SendScsiCommand(handle, cdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 5, out _, out _, out _);
+            using var handle = OpenDrive(driveLetter, writeAccess: true);
+            if (!handle.IsInvalid)
+            {
+                byte[] cdb = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00]; // TEST UNIT READY
+                if (SendScsiCommand(handle, cdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 5, out _, out _, out _))
+                    return true;
+
+                // Non-admin fallback: IOCTL_STORAGE_CHECK_VERIFY2 (works with GENERIC_READ)
+                if (DeviceIoControl(handle, IOCTL_STORAGE_CHECK_VERIFY2, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero))
+                    return true;
+            }
+
+            var di = new DriveInfo($"{char.ToUpperInvariant(driveLetter.Trim()[0])}:\\");
+            return di.IsReady;
         }
         catch
         {
@@ -363,11 +376,94 @@ internal static class ScsiOpticalDevice
         }
     }
 
-    public static (DiscProtectionSystem Protection, int RegionMask) QueryDvdCopyrightInfo(string driveLetter)
+    public static long QueryDeviceLengthBytes(string driveLetter)
     {
         try
         {
             using var handle = OpenDrive(driveLetter, writeAccess: false);
+            if (handle.IsInvalid) return 0;
+            IntPtr outPtr = Marshal.AllocHGlobal(sizeof(long));
+            try
+            {
+                if (DeviceIoControl(handle, IOCTL_DISK_GET_LENGTH_INFO, IntPtr.Zero, 0, outPtr, sizeof(long), out uint returned, IntPtr.Zero) && returned >= sizeof(long))
+                {
+                    return Marshal.ReadInt64(outPtr);
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(outPtr);
+            }
+        }
+        catch { }
+        return 0;
+    }
+
+    public static List<SessionModel> QuerySessionsViaReadTocEx(string driveLetter)
+    {
+        var sessions = new List<SessionModel>();
+        try
+        {
+            using var handle = OpenDrive(driveLetter, writeAccess: false);
+            if (handle.IsInvalid) return sessions;
+
+            // CDROM_READ_TOC_EX: Format = 0x00 (TOC, LBA), SessionTrack = 1
+            byte[] inBuf = [0x00, 0x01, 0x00, 0x00];
+            var outBuf = new byte[4 + 100 * 8];
+            GCHandle hIn = GCHandle.Alloc(inBuf, GCHandleType.Pinned);
+            GCHandle hOut = GCHandle.Alloc(outBuf, GCHandleType.Pinned);
+            try
+            {
+                if (!DeviceIoControl(handle, IOCTL_CDROM_READ_TOC_EX, hIn.AddrOfPinnedObject(), (uint)inBuf.Length,
+                        hOut.AddrOfPinnedObject(), (uint)outBuf.Length, out uint bytesReturned, IntPtr.Zero) || bytesReturned < 12)
+                {
+                    return sessions;
+                }
+            }
+            finally
+            {
+                hIn.Free();
+                hOut.Free();
+            }
+
+            int dataLen = ((outBuf[0] << 8) | outBuf[1]) + 2;
+            int limit = Math.Min(outBuf.Length, dataLen);
+            var rawTracks = new List<(int TrackNum, bool IsAudio, int StartLba)>();
+            for (int off = 4; off + 8 <= limit; off += 8)
+            {
+                byte control = (byte)(outBuf[off + 1] & 0x0F);
+                int trNum = outBuf[off + 2];
+                int lba = (outBuf[off + 4] << 24) | (outBuf[off + 5] << 16) | (outBuf[off + 6] << 8) | outBuf[off + 7];
+                bool isAudio = (control & 0x04) == 0;
+                rawTracks.Add((trNum, isAudio, lba));
+            }
+
+            var tracks = new List<TrackModel>();
+            for (int i = 0; i < rawTracks.Count - 1; i++)
+            {
+                var cur = rawTracks[i];
+                if (cur.TrackNum == 0xAA) break;
+                int blocks = Math.Max(0, rawTracks[i + 1].StartLba - cur.StartLba);
+                int blockSize = cur.IsAudio ? AudioSectorSize : DataSectorSize;
+                long sizeBytes = (long)blocks * blockSize;
+                var dur = cur.IsAudio ? TimeSpan.FromSeconds(blocks / 75.0) : TimeSpan.Zero;
+                tracks.Add(new TrackModel(cur.TrackNum, cur.IsAudio, blocks, blockSize, sizeBytes, dur));
+            }
+
+            if (tracks.Count > 0)
+            {
+                sessions.Add(new SessionModel(1, tracks));
+            }
+        }
+        catch { }
+        return sessions;
+    }
+
+    public static (DiscProtectionSystem Protection, int RegionMask) QueryDvdCopyrightInfo(string driveLetter)
+    {
+        try
+        {
+            using var handle = OpenDrive(driveLetter, writeAccess: true);
             if (handle.IsInvalid) return (DiscProtectionSystem.None, 0);
 
             var buf = new byte[8];
@@ -386,11 +482,33 @@ internal static class ScsiOpticalDevice
         return (DiscProtectionSystem.None, 0);
     }
 
+    public static OpticalDiscType MapProfileCode(ushort profile) => profile switch
+    {
+        0x0008 => OpticalDiscType.CdRom,
+        0x0009 => OpticalDiscType.CdR,
+        0x000A => OpticalDiscType.CdRw,
+        0x0010 => OpticalDiscType.DvdRom,
+        0x0011 => OpticalDiscType.DvdR,
+        0x0012 => OpticalDiscType.DvdRam,
+        0x0013 or 0x0014 => OpticalDiscType.DvdRw,
+        0x0015 or 0x0016 => OpticalDiscType.DvdRDl,
+        0x001A => OpticalDiscType.DvdPlusRw,
+        0x001B => OpticalDiscType.DvdPlusR,
+        0x002B => OpticalDiscType.DvdPlusRDl,
+        0x0040 => OpticalDiscType.BdRom,
+        0x0041 or 0x0042 => OpticalDiscType.BdR,
+        0x0043 => OpticalDiscType.BdRe,
+        0x0050 => OpticalDiscType.HdDvdRom,
+        0x0051 => OpticalDiscType.HdDvdR,
+        0x0052 => OpticalDiscType.HdDvdRw,
+        _ => OpticalDiscType.None
+    };
+
     public static OpticalDiscType QueryCurrentMediaProfile(string driveLetter)
     {
         try
         {
-            using var handle = OpenDrive(driveLetter, writeAccess: false);
+            using var handle = OpenDrive(driveLetter, writeAccess: true);
             if (handle.IsInvalid) return OpticalDiscType.None;
 
             var buf = new byte[8];
@@ -398,27 +516,7 @@ internal static class ScsiOpticalDevice
             if (SendScsiCommand(handle, cdb, buf, SCSI_IOCTL_DATA_IN, 5, out _, out _, out _))
             {
                 ushort currentProfile = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(6, 2));
-                return currentProfile switch
-                {
-                    0x0008 => OpticalDiscType.CdRom,
-                    0x0009 => OpticalDiscType.CdR,
-                    0x000A => OpticalDiscType.CdRw,
-                    0x0010 => OpticalDiscType.DvdRom,
-                    0x0011 => OpticalDiscType.DvdR,
-                    0x0012 => OpticalDiscType.DvdRam,
-                    0x0013 or 0x0014 => OpticalDiscType.DvdRw,
-                    0x0015 or 0x0016 => OpticalDiscType.DvdRDl,
-                    0x001A => OpticalDiscType.DvdPlusRw,
-                    0x001B => OpticalDiscType.DvdPlusR,
-                    0x002B => OpticalDiscType.DvdPlusRDl,
-                    0x0040 => OpticalDiscType.BdRom,
-                    0x0041 or 0x0042 => OpticalDiscType.BdR,
-                    0x0043 => OpticalDiscType.BdRe,
-                    0x0050 => OpticalDiscType.HdDvdRom,
-                    0x0051 => OpticalDiscType.HdDvdR,
-                    0x0052 => OpticalDiscType.HdDvdRw,
-                    _ => OpticalDiscType.None
-                };
+                return MapProfileCode(currentProfile);
             }
         }
         catch { }
@@ -445,7 +543,7 @@ internal static class ScsiOpticalDevice
 
         try
         {
-            using var handle = OpenDrive(driveLetter, writeAccess: false);
+            using var handle = OpenDrive(driveLetter, writeAccess: true);
             if (handle.IsInvalid)
                 return new RawDiscLayout(false, false, false, sessions, 0, 0, 0);
 
@@ -566,7 +664,7 @@ internal static class ScsiOpticalDevice
         IProgress<BurnProgress>? progress,
         CancellationToken ct)
     {
-        using var handle = OpenDrive(driveLetter, writeAccess: false);
+        using var handle = OpenDrive(driveLetter, writeAccess: true);
         if (handle.IsInvalid)
             throw new IOException($"Could not open optical drive {driveLetter}: for reading.");
 
@@ -645,7 +743,7 @@ internal static class ScsiOpticalDevice
         IProgress<BurnProgress>? progress,
         CancellationToken ct)
     {
-        using var handle = OpenDrive(driveLetter, writeAccess: false);
+        using var handle = OpenDrive(driveLetter, writeAccess: true);
         if (handle.IsInvalid)
             throw new IOException($"Could not open drive {driveLetter}: for verification.");
 
