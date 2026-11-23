@@ -43,7 +43,7 @@ public sealed partial class MainWindow : Window
         LocalizationService.Current.LanguageChanged += (_, _) =>
             DispatcherQueue.TryEnqueue(() => LocalizationService.Current.TranslateTree(Content as DependencyObject));
         ContentFrame.Navigated += (_, _) =>
-            DispatcherQueue.TryEnqueue(() => LocalizationService.Current.TranslateTree(Content as DependencyObject));
+            DispatcherQueue.TryEnqueue(() => LocalizationService.Current.TranslateTree(ContentFrame.Content as DependencyObject));
         LocalizationService.Current.TranslateTree(Content as DependencyObject);
 
         AppServices.Current.NavigationHandler = NavigateTo;

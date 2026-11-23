@@ -27,7 +27,13 @@ public sealed class LocalizationService
         "es-ES"
     ];
 
-    private static readonly ConditionalWeakTable<DependencyObject, Dictionary<string, string>> Originals = new();
+    private sealed class TrackedText
+    {
+        public string Original { get; set; } = string.Empty;
+        public string LastWritten { get; set; } = string.Empty;
+    }
+
+    private static readonly ConditionalWeakTable<DependencyObject, Dictionary<string, TrackedText>> Originals = new();
 
     private Dictionary<string, string> _activeMap = new(StringComparer.Ordinal);
     private string _currentCulture = "en-US";
@@ -198,64 +204,67 @@ public sealed class LocalizationService
         // ToolTip
         if (ToolTipService.GetToolTip(obj) is string tip && !string.IsNullOrWhiteSpace(tip))
         {
-            string orig = GetOrStoreOriginal(obj, "ToolTip", tip);
-            ToolTipService.SetToolTip(obj, Translate(orig));
+            if (TryTranslateTracked(obj, "ToolTip", tip, out var translated))
+                ToolTipService.SetToolTip(obj, translated);
         }
 
         switch (obj)
         {
             case TextBlock tb when !string.IsNullOrWhiteSpace(tb.Text):
-                tb.Text = Translate(GetOrStoreOriginal(tb, "Text", tb.Text));
+                if (TryTranslateTracked(tb, "Text", tb.Text, out var tbText))
+                    tb.Text = tbText;
                 break;
 
             case NavigationViewItem nvi when nvi.Content is string s && !string.IsNullOrWhiteSpace(s):
-                nvi.Content = Translate(GetOrStoreOriginal(nvi, "Content", s));
+                if (TryTranslateTracked(nvi, "Content", s, out var nviText))
+                    nvi.Content = nviText;
                 break;
 
             case NavigationViewItemHeader nvih when nvih.Content is string s && !string.IsNullOrWhiteSpace(s):
-                nvih.Content = Translate(GetOrStoreOriginal(nvih, "Content", s));
+                if (TryTranslateTracked(nvih, "Content", s, out var nvihText))
+                    nvih.Content = nvihText;
                 break;
 
             case ToggleSwitch ts:
-                if (ts.Header is string tsh && !string.IsNullOrWhiteSpace(tsh))
-                    ts.Header = Translate(GetOrStoreOriginal(ts, "Header", tsh));
+                if (ts.Header is string tsh && !string.IsNullOrWhiteSpace(tsh) && TryTranslateTracked(ts, "Header", tsh, out var tsText))
+                    ts.Header = tsText;
                 break;
 
             case TextBox textBox:
-                if (textBox.Header is string tbh && !string.IsNullOrWhiteSpace(tbh))
-                    textBox.Header = Translate(GetOrStoreOriginal(textBox, "Header", tbh));
-                if (!string.IsNullOrWhiteSpace(textBox.PlaceholderText))
-                    textBox.PlaceholderText = Translate(GetOrStoreOriginal(textBox, "Placeholder", textBox.PlaceholderText));
+                if (textBox.Header is string tbh && !string.IsNullOrWhiteSpace(tbh) && TryTranslateTracked(textBox, "Header", tbh, out var tbhText))
+                    textBox.Header = tbhText;
+                if (!string.IsNullOrWhiteSpace(textBox.PlaceholderText) && TryTranslateTracked(textBox, "Placeholder", textBox.PlaceholderText, out var tbpText))
+                    textBox.PlaceholderText = tbpText;
                 break;
 
             case ComboBox combo:
-                if (combo.Header is string cbh && !string.IsNullOrWhiteSpace(cbh))
-                    combo.Header = Translate(GetOrStoreOriginal(combo, "Header", cbh));
-                if (!string.IsNullOrWhiteSpace(combo.PlaceholderText))
-                    combo.PlaceholderText = Translate(GetOrStoreOriginal(combo, "Placeholder", combo.PlaceholderText));
+                if (combo.Header is string cbh && !string.IsNullOrWhiteSpace(cbh) && TryTranslateTracked(combo, "Header", cbh, out var cbhText))
+                    combo.Header = cbhText;
+                if (!string.IsNullOrWhiteSpace(combo.PlaceholderText) && TryTranslateTracked(combo, "Placeholder", combo.PlaceholderText, out var cbpText))
+                    combo.PlaceholderText = cbpText;
                 break;
 
             case NumberBox nb:
-                if (nb.Header is string nbh && !string.IsNullOrWhiteSpace(nbh))
-                    nb.Header = Translate(GetOrStoreOriginal(nb, "Header", nbh));
-                if (!string.IsNullOrWhiteSpace(nb.PlaceholderText))
-                    nb.PlaceholderText = Translate(GetOrStoreOriginal(nb, "Placeholder", nb.PlaceholderText));
+                if (nb.Header is string nbh && !string.IsNullOrWhiteSpace(nbh) && TryTranslateTracked(nb, "Header", nbh, out var nbhText))
+                    nb.Header = nbhText;
+                if (!string.IsNullOrWhiteSpace(nb.PlaceholderText) && TryTranslateTracked(nb, "Placeholder", nb.PlaceholderText, out var nbpText))
+                    nb.PlaceholderText = nbpText;
                 break;
 
             case RadioButtons rbs:
-                if (rbs.Header is string rbh && !string.IsNullOrWhiteSpace(rbh))
-                    rbs.Header = Translate(GetOrStoreOriginal(rbs, "Header", rbh));
+                if (rbs.Header is string rbh && !string.IsNullOrWhiteSpace(rbh) && TryTranslateTracked(rbs, "Header", rbh, out var rbhText))
+                    rbs.Header = rbhText;
                 break;
 
             case ContentDialog dlg:
-                if (dlg.Title is string dt && !string.IsNullOrWhiteSpace(dt))
-                    dlg.Title = Translate(GetOrStoreOriginal(dlg, "Title", dt));
-                if (!string.IsNullOrWhiteSpace(dlg.PrimaryButtonText))
-                    dlg.PrimaryButtonText = Translate(GetOrStoreOriginal(dlg, "Primary", dlg.PrimaryButtonText));
-                if (!string.IsNullOrWhiteSpace(dlg.SecondaryButtonText))
-                    dlg.SecondaryButtonText = Translate(GetOrStoreOriginal(dlg, "Secondary", dlg.SecondaryButtonText));
-                if (!string.IsNullOrWhiteSpace(dlg.CloseButtonText))
-                    dlg.CloseButtonText = Translate(GetOrStoreOriginal(dlg, "Close", dlg.CloseButtonText));
+                if (dlg.Title is string dt && !string.IsNullOrWhiteSpace(dt) && TryTranslateTracked(dlg, "Title", dt, out var dtText))
+                    dlg.Title = dtText;
+                if (!string.IsNullOrWhiteSpace(dlg.PrimaryButtonText) && TryTranslateTracked(dlg, "Primary", dlg.PrimaryButtonText, out var dpText))
+                    dlg.PrimaryButtonText = dpText;
+                if (!string.IsNullOrWhiteSpace(dlg.SecondaryButtonText) && TryTranslateTracked(dlg, "Secondary", dlg.SecondaryButtonText, out var dsText))
+                    dlg.SecondaryButtonText = dsText;
+                if (!string.IsNullOrWhiteSpace(dlg.CloseButtonText) && TryTranslateTracked(dlg, "Close", dlg.CloseButtonText, out var dcText))
+                    dlg.CloseButtonText = dcText;
                 break;
 
             case ContentControl cc when cc.Content is string s && !string.IsNullOrWhiteSpace(s):
@@ -263,19 +272,35 @@ public sealed class LocalizationService
                 if (cc is ComboBoxItem cbi && cbi.Tag is string tag &&
                     (tag is "en-US" or "de-DE" or "cs-CZ" or "pl-PL" or "sk-SK" or "es-ES"))
                     break;
-                cc.Content = Translate(GetOrStoreOriginal(cc, "Content", s));
+                if (TryTranslateTracked(cc, "Content", s, out var ccText))
+                    cc.Content = ccText;
                 break;
         }
     }
 
-    private static string GetOrStoreOriginal(DependencyObject obj, string propKey, string currentValue)
+    /// <summary>
+    /// Translates a UI property while preserving dynamic code-behind updates:
+    /// if the element's current value differs from what LocalizationService last wrote,
+    /// code-behind updated it dynamically (e.g. MediaStatusText or DiscCapacityBar), so we
+    /// refresh the tracked original instead of reverting to a stale initial XAML placeholder.
+    /// </summary>
+    private bool TryTranslateTracked(DependencyObject obj, string propKey, string currentValue, out string result)
     {
         var dict = Originals.GetOrCreateValue(obj);
-        if (dict.TryGetValue(propKey, out var orig))
-            return orig;
+        if (!dict.TryGetValue(propKey, out var entry))
+        {
+            entry = new TrackedText { Original = currentValue, LastWritten = currentValue };
+            dict[propKey] = entry;
+        }
+        else if (!string.Equals(currentValue, entry.LastWritten, StringComparison.Ordinal))
+        {
+            // Code-behind updated this property dynamically since we last translated it
+            entry.Original = currentValue;
+        }
 
-        dict[propKey] = currentValue;
-        return currentValue;
+        result = Translate(entry.Original);
+        entry.LastWritten = result;
+        return !string.Equals(currentValue, result, StringComparison.Ordinal);
     }
 }
 
