@@ -1,4 +1,7 @@
+using System.ComponentModel;
 using CDBurner10.App.Converters;
+using CDBurner10.App.Services;
+using CDBurner10.Core.Burning;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -32,9 +35,13 @@ public sealed partial class DiscCapacityBar : UserControl
         new("Audio CD (99 min)", 911_212_544L, 99 * 60)
     ];
 
+    private const double CdDataBytesPerAudioSecond = 2048.0 * 75.0; // 75 sectors/sec * 2048 B/sector
+
     private bool _isAudioMode;
     private long _usedBytes;
     private double _usedSeconds;
+    private long _existingUsedBytes;
+    private double _existingUsedSeconds;
     private long _capacityBytes = 734_003_200L;
     private double _capacitySeconds = 80 * 60;
     private bool _suppressSelectionChanged;
@@ -73,17 +80,75 @@ public sealed partial class DiscCapacityBar : UserControl
         }
     }
 
+    public long ExistingUsedBytes
+    {
+        get => _existingUsedBytes;
+        set
+        {
+            _existingUsedBytes = Math.Max(0, value);
+            UpdateVisuals();
+        }
+    }
+
+    public double ExistingUsedSeconds
+    {
+        get => _existingUsedSeconds;
+        set
+        {
+            _existingUsedSeconds = Math.Max(0, value);
+            UpdateVisuals();
+        }
+    }
+
     public long CapacityBytes => _capacityBytes;
     public double CapacitySeconds => _capacitySeconds;
 
     public bool IsOverburn => _isAudioMode
-        ? _capacitySeconds > 0 && _usedSeconds > _capacitySeconds
-        : _capacityBytes > 0 && _usedBytes > _capacityBytes;
+        ? _capacitySeconds > 0 && (_existingUsedSeconds + _usedSeconds) > _capacitySeconds
+        : _capacityBytes > 0 && (_existingUsedBytes + _usedBytes) > _capacityBytes;
 
     public DiscCapacityBar()
     {
         InitializeComponent();
         LoadPresets();
+        Loaded += DiscCapacityBar_Loaded;
+        Unloaded += DiscCapacityBar_Unloaded;
+        ApplyInsertedDisc(AppServices.Current.SelectedDriveDiscInfo);
+        UpdateVisuals();
+    }
+
+    private void DiscCapacityBar_Loaded(object sender, RoutedEventArgs e)
+    {
+        AppServices.Current.PropertyChanged += OnAppServicesPropertyChanged;
+        ApplyInsertedDisc(AppServices.Current.SelectedDriveDiscInfo);
+    }
+
+    private void DiscCapacityBar_Unloaded(object sender, RoutedEventArgs e)
+    {
+        AppServices.Current.PropertyChanged -= OnAppServicesPropertyChanged;
+    }
+
+    private void OnAppServicesPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AppServices.SelectedDriveDiscInfo))
+        {
+            DispatcherQueue.TryEnqueue(() => ApplyInsertedDisc(AppServices.Current.SelectedDriveDiscInfo));
+        }
+    }
+
+    public void ApplyInsertedDisc(DiscInfoModel? info)
+    {
+        if (info is not null && info.HasDisc && !info.IsBlank && info.UsedSizeBytes > 0)
+        {
+            _existingUsedBytes = info.UsedSizeBytes;
+            _existingUsedSeconds = info.UsedSizeBytes / CdDataBytesPerAudioSecond;
+        }
+        else
+        {
+            _existingUsedBytes = 0;
+            _existingUsedSeconds = 0;
+        }
+
         UpdateVisuals();
     }
 
@@ -181,24 +246,39 @@ public sealed partial class DiscCapacityBar : UserControl
 
     private void UpdateVisuals()
     {
-        double ratio = _isAudioMode
+        double existingRatio = _isAudioMode
+            ? (_capacitySeconds > 0 ? _existingUsedSeconds / _capacitySeconds : 0)
+            : (_capacityBytes > 0 ? (double)_existingUsedBytes / _capacityBytes : 0);
+
+        double newRatio = _isAudioMode
             ? (_capacitySeconds > 0 ? _usedSeconds / _capacitySeconds : 0)
             : (_capacityBytes > 0 ? (double)_usedBytes / _capacityBytes : 0);
 
-        double pct = ratio * 100.0;
+        double totalRatio = existingRatio + newRatio;
+        double pct = totalRatio * 100.0;
         double trackWidth = BarTrack.ActualWidth;
         if (trackWidth > 0)
         {
-            BarFill.Width = Math.Clamp(ratio, 0, 1.0) * trackWidth;
+            double existingWidth = Math.Clamp(existingRatio, 0, 1.0) * trackWidth;
+            double remainingTrackWidth = Math.Max(0, trackWidth - existingWidth);
+            double newWidth = Math.Min(Math.Clamp(newRatio, 0, 1.0) * trackWidth, remainingTrackWidth);
+
+            ExistingBarFill.Width = existingWidth;
+            ExistingBarFill.CornerRadius = newWidth > 0 ? new CornerRadius(5, 0, 0, 5) : new CornerRadius(5);
+
+            BarFill.Margin = new Thickness(existingWidth, 0, 0, 0);
+            BarFill.Width = newWidth;
+            BarFill.CornerRadius = existingWidth > 0 ? new CornerRadius(0, 5, 5, 0) : new CornerRadius(5);
+
             WarningMarker.Margin = new Thickness(trackWidth * 0.9, 0, 0, 0);
         }
 
-        if (ratio > 1.0)
+        if (totalRatio > 1.0)
         {
             BarFill.Background = new SolidColorBrush(Color.FromArgb(255, 220, 38, 38)); // Red
             OverburnBadge.Visibility = Visibility.Visible;
         }
-        else if (ratio >= 0.90)
+        else if (totalRatio >= 0.90)
         {
             BarFill.Background = new SolidColorBrush(Color.FromArgb(255, 217, 119, 6)); // Amber
             OverburnBadge.Visibility = Visibility.Collapsed;
@@ -211,30 +291,40 @@ public sealed partial class DiscCapacityBar : UserControl
 
         if (_isAudioMode)
         {
+            double totalSec = _existingUsedSeconds + _usedSeconds;
             var used = TimeSpan.FromSeconds(_usedSeconds);
+            var total = TimeSpan.FromSeconds(totalSec);
             var cap = TimeSpan.FromSeconds(_capacitySeconds);
-            UsageSummaryText.Text = $"{FormatHelper.FormatDuration(used)} used of {FormatHelper.FormatDuration(cap)}";
-            if (_usedSeconds <= _capacitySeconds)
+
+            UsageSummaryText.Text = _existingUsedSeconds > 0
+                ? $"{FormatHelper.FormatDuration(TimeSpan.FromSeconds(_existingUsedSeconds))} on disc + {FormatHelper.FormatDuration(used)} new ({FormatHelper.FormatDuration(total)} of {FormatHelper.FormatDuration(cap)})"
+                : $"{FormatHelper.FormatDuration(used)} used of {FormatHelper.FormatDuration(cap)}";
+
+            if (totalSec <= _capacitySeconds)
             {
-                var rem = TimeSpan.FromSeconds(_capacitySeconds - _usedSeconds);
+                var rem = TimeSpan.FromSeconds(_capacitySeconds - totalSec);
                 RemainingText.Text = $"{FormatHelper.FormatDuration(rem)} remaining ({pct:0.#}%)";
             }
             else
             {
-                var over = TimeSpan.FromSeconds(_usedSeconds - _capacitySeconds);
+                var over = TimeSpan.FromSeconds(totalSec - _capacitySeconds);
                 RemainingText.Text = $"Exceeds capacity by {FormatHelper.FormatDuration(over)} ({pct:0.#}%)";
             }
         }
         else
         {
-            UsageSummaryText.Text = $"{FormatHelper.FormatBytes(_usedBytes)} used of {FormatHelper.FormatBytes(_capacityBytes)}";
-            if (_usedBytes <= _capacityBytes)
+            long totalBytes = _existingUsedBytes + _usedBytes;
+            UsageSummaryText.Text = _existingUsedBytes > 0
+                ? $"{FormatHelper.FormatBytes(_existingUsedBytes)} on disc + {FormatHelper.FormatBytes(_usedBytes)} new ({FormatHelper.FormatBytes(totalBytes)} of {FormatHelper.FormatBytes(_capacityBytes)})"
+                : $"{FormatHelper.FormatBytes(_usedBytes)} used of {FormatHelper.FormatBytes(_capacityBytes)}";
+
+            if (totalBytes <= _capacityBytes)
             {
-                RemainingText.Text = $"{FormatHelper.FormatBytes(_capacityBytes - _usedBytes)} free ({pct:0.#}%)";
+                RemainingText.Text = $"{FormatHelper.FormatBytes(_capacityBytes - totalBytes)} free ({pct:0.#}%)";
             }
             else
             {
-                RemainingText.Text = $"Exceeds capacity by {FormatHelper.FormatBytes(_usedBytes - _capacityBytes)} ({pct:0.#}%)";
+                RemainingText.Text = $"Exceeds capacity by {FormatHelper.FormatBytes(totalBytes - _capacityBytes)} ({pct:0.#}%)";
             }
         }
     }

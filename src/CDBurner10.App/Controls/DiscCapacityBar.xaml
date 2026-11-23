@@ -60,12 +60,23 @@
                 CornerRadius="5"
                 Background="{ThemeResource ControlStrongFillColorDisabledBrush}"
                 SizeChanged="BarTrack_SizeChanged">
+                <!-- Already used on inserted disc -->
+                <Border
+                    x:Name="ExistingBarFill"
+                    HorizontalAlignment="Left"
+                    Width="0"
+                    CornerRadius="5,0,0,5"
+                    Background="{ThemeResource TextFillColorSecondaryBrush}"
+                    Opacity="0.6"
+                    ToolTipService.ToolTip="Already used on inserted disc" />
+                <!-- New compilation usage -->
                 <Border
                     x:Name="BarFill"
                     HorizontalAlignment="Left"
                     Width="0"
                     CornerRadius="5"
-                    Background="{ThemeResource AccentFillColorDefaultBrush}" />
+                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                    ToolTipService.ToolTip="New compilation" />
                 <!-- 90% warning marker -->
                 <Rectangle
                     x:Name="WarningMarker"
