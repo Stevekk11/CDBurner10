@@ -18,7 +18,6 @@ public class AppSettings
     public string LastUsedProjectType { get; set; } = string.Empty;
     public bool LoggingEnabled { get; set; } = false;
     public int LoggingLevel { get; set; } = -1;
-    public bool UseSPTD { get; set; } = false;
     public bool UseCustomTempFolder { get; set; } = false;
     public string CustomTempFolder { get; set; } = string.Empty;
     public bool AutoUpdate { get; set; } = false;

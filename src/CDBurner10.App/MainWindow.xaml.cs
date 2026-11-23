@@ -126,8 +126,7 @@ public sealed partial class MainWindow : Window
                     NavigateTo("audio", first);
                     return;
                 }
-                if (first.EndsWith(".iso", StringComparison.OrdinalIgnoreCase) ||
-                    first.EndsWith(".mds", StringComparison.OrdinalIgnoreCase))
+                if (first.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
                 {
                     NavigateTo("iso", first);
                     return;

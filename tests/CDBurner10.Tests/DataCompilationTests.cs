@@ -1,5 +1,4 @@
 using CDBurner10.Core.Burning;
-using RocketDivision.StarBurnX;
 
 namespace CDBurner10.Tests;
 
@@ -23,7 +22,7 @@ public sealed class DataCompilationTests
         comp.DataBurner.BootImage.FileName = bootImg;
         comp.DataBurner.BootImage.Platform = 0;
         comp.DataBurner.BootImage.LoadSegment = 0x7C0;
-        comp.DataBurner.BootImage.EmulationType = STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_CDROM;
+        comp.DataBurner.BootImage.EmulationType = BootEmulationType.NoEmulation;
         comp.DataBurner.BootImage.SectorsToLoad = 4;
 
         var vf1 = comp.DataBurner.AddFile(file1, "\\", "root_renamed.txt");
@@ -50,7 +49,7 @@ public sealed class DataCompilationTests
         Assert.Equal(bootImg, loaded.DataBurner.BootImage.FileName);
         Assert.Equal(0, loaded.DataBurner.BootImage.Platform);
         Assert.Equal(0x7C0, loaded.DataBurner.BootImage.LoadSegment);
-        Assert.Equal(STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_CDROM, loaded.DataBurner.BootImage.EmulationType);
+        Assert.Equal(BootEmulationType.NoEmulation, loaded.DataBurner.BootImage.EmulationType);
         Assert.Equal(4, loaded.DataBurner.BootImage.SectorsToLoad);
 
         Assert.Equal(2, loaded.RootFolder.FileCount);

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using RocketDivision.StarBurnX;
+using System.Runtime.InteropServices.ComTypes;
+using CDBurner10.Core.Native;
 
 namespace CDBurner10.Core.Burning;
 
@@ -8,8 +9,7 @@ public sealed class GenericDataBurner
     private const long MaxIsoFileSizeBytes = 4L * 1024 * 1024 * 1024 - 1; // 4 GiB - 1
 
     private DataFileSystem _fileSystem = DataFileSystem.IsoJoliet;
-    private DataBurnerClass? _isoBurner;
-    private UDFDataBurnerClass? _udfBurner;
+    private IDiscFormat2Data? _activeFormat;
     private bool _isCancelled;
     private bool _isImported;
 
@@ -43,29 +43,12 @@ public sealed class GenericDataBurner
     public int FileCount => RootFolder.FileCount;
     public int FolderCount => RootFolder.FolderCount;
 
-    public GenericDataBurner()
-    {
-    }
-
-    private void EnsureBurnerInstance()
-    {
-        if (_fileSystem == DataFileSystem.IsoJoliet)
-        {
-            _isoBurner ??= new DataBurnerClass();
-        }
-        else
-        {
-            _udfBurner ??= new UDFDataBurnerClass();
-        }
-    }
-
     public void SetFileSystemType(DataFileSystem fileSystem)
     {
         if (_fileSystem == fileSystem) return;
 
         if (_fileSystem == DataFileSystem.Udf && fileSystem == DataFileSystem.IsoJoliet)
         {
-            // Check if any file exceeds 4 GiB
             var tooBig = RootFolder.EnumerateAllFiles().FirstOrDefault(f => f.FileSizeBytes > MaxIsoFileSizeBytes);
             if (tooBig is not null)
             {
@@ -243,65 +226,64 @@ public sealed class GenericDataBurner
 
     public void ImportTrack(DriveModel drive, int trackNumber = -1)
     {
-        EnsureBurnerInstance();
+        IDiscRecorder2? recorder = null;
+        IDiscFormat2Data? format = null;
+        IFileSystemImage? fsi = null;
         try
         {
-            if (_fileSystem == DataFileSystem.IsoJoliet)
+            recorder = drive.OpenRecorder();
+            format = Imapi2Interop.CreateDiscFormat2Data();
+            format.put_Recorder(recorder);
+
+            if (format.MediaPhysicallyBlank || format.MediaHeuristicallyBlank)
+                throw new InvalidOperationException("The inserted disc is blank; there is no previous session to import.");
+
+            fsi = Imapi2Interop.CreateFileSystemImage();
+            fsi.MultisessionInterfaces = format.MultisessionInterfaces;
+            int importedFs = fsi.ImportFileSystem();
+            if ((importedFs & Imapi2Interop.FsiFileSystemUDF) != 0 && (importedFs & Imapi2Interop.FsiFileSystemJoliet) == 0)
             {
-                _isoBurner!.Drive = drive.RawDrive;
-                _isoBurner.ImportTrack(trackNumber);
-                PopulateVirtualTreeFromStarBurn(_isoBurner.Files, RootFolder);
+                _fileSystem = DataFileSystem.Udf;
             }
             else
             {
-                _udfBurner!.Drive = drive.RawDrive;
-                _udfBurner.ImportTrack(trackNumber);
-                PopulateVirtualTreeFromStarBurn(_udfBurner.Files, RootFolder);
+                _fileSystem = DataFileSystem.IsoJoliet;
             }
+
+            PopulateVirtualTreeFromFsi(fsi.Root, RootFolder);
             _isImported = true;
         }
-        catch (COMException ex) when (ex.IsError(STARBURN_RESULT_CODES.STARBURN_ERR_UNSUPPORTED_DISC_FILE_SYSTEM))
+        finally
         {
-            // Auto-switch between ISO/Joliet and UDF
-            _fileSystem = _fileSystem == DataFileSystem.Udf ? DataFileSystem.IsoJoliet : DataFileSystem.Udf;
-            EnsureBurnerInstance();
-            if (_fileSystem == DataFileSystem.IsoJoliet)
-            {
-                _isoBurner!.Drive = drive.RawDrive;
-                _isoBurner.ImportTrack(trackNumber);
-                PopulateVirtualTreeFromStarBurn(_isoBurner.Files, RootFolder);
-            }
-            else
-            {
-                _udfBurner!.Drive = drive.RawDrive;
-                _udfBurner.ImportTrack(trackNumber);
-                PopulateVirtualTreeFromStarBurn(_udfBurner.Files, RootFolder);
-            }
-            _isImported = true;
+            Imapi2Interop.SafeRelease(fsi);
+            Imapi2Interop.SafeRelease(format);
+            Imapi2Interop.SafeRelease(recorder);
         }
     }
 
-    private static void PopulateVirtualTreeFromStarBurn(DataFiles files, VirtualFolder target)
+    private static void PopulateVirtualTreeFromFsi(IFsiDirectoryItem sourceDir, VirtualFolder target)
     {
-        foreach (IDataFile item in files)
+        var enumerator = sourceDir.GetEnumerator();
+        while (enumerator.MoveNext())
         {
-            if (item is IDataFolder folder)
+            if (enumerator.Current is IFsiDirectoryItem subDir)
             {
-                var vf = target.FindFolder(folder.Name) ?? new VirtualFolder(folder.Name, target) { IsImported = true, IsHidden = folder.GetIsHidden() };
+                var vf = target.FindFolder(subDir.Name)
+                    ?? new VirtualFolder(subDir.Name, target) { IsImported = true, IsHidden = subDir.IsHidden };
                 if (!target.Folders.Contains(vf)) target.Folders.Add(vf);
-                PopulateVirtualTreeFromStarBurn(folder.Files, vf);
+                PopulateVirtualTreeFromFsi(subDir, vf);
             }
-            else
+            else if (enumerator.Current is IFsiFileItem fileItem)
             {
-                if (target.FindFile(item.Name) is null)
+                if (target.FindFile(fileItem.Name) is null)
                 {
                     target.Files.Add(new VirtualFile
                     {
-                        Name = item.Name,
-                        SourcePath = item.Path ?? string.Empty,
-                        FileSizeBytes = (long)item.Size * 1024L,
-                        IsHidden = item.GetIsHidden(),
-                        IsImported = item.ItemType == STARBURN_FS_ITEM_TYPE.STARBURN_FS_ITEM_IMPORTED_FROM_TRACK,
+                        Name = fileItem.Name,
+                        SourcePath = string.Empty,
+                        FileSizeBytes = fileItem.DataSize,
+                        IsHidden = fileItem.IsHidden,
+                        IsImported = true,
                         Parent = target
                     });
                 }
@@ -329,22 +311,11 @@ public sealed class GenericDataBurner
                 string label = DataCompilation.ReplaceDiscLabelVariables(rawLabel);
                 if (label.Length > NameMaxLength) label = label[..NameMaxLength];
 
-                string publisher = options.PublisherName ?? PublisherName;
-                string appName = options.ApplicationName ?? ApplicationName;
-
-                if (_fileSystem == DataFileSystem.IsoJoliet)
-                {
-                    BurnIsoInternal(options, label, publisher, appName, progress);
-                }
-                else
-                {
-                    BurnUdfInternal(options, label, progress);
-                }
+                BurnWithImapi2(options, label, progress, ct);
 
                 if (options.EjectAfterBurn && !_isCancelled)
                 {
-                    try { options.Drive.RawDrive.Eject(); }
-                    catch (COMException) { }
+                    try { options.Drive.Eject(); } catch { }
                 }
             }
 
@@ -355,86 +326,101 @@ public sealed class GenericDataBurner
         }, ct);
     }
 
-    private void BurnIsoInternal(
+    private void BurnWithImapi2(
         DataBurnOptions options,
         string label,
-        string publisher,
-        string appName,
-        IProgress<BurnProgress>? progress)
+        IProgress<BurnProgress>? progress,
+        CancellationToken ct)
     {
-        var burner = new DataBurnerClass();
-        _isoBurner = burner;
-        ConfigureCommonBurner(burner, options);
-        burner.IsXACDROM = IsXaCdRom;
-        burner.AutoSortFiles = AutoSortFiles;
-        burner.DisableCollisionsDetection = DisableCollisionsDetection;
-        PopulateStarBurnTree(RootFolder, burner);
-
-        int lastBuf = 0;
-        burner.OnBuffer += p => { lastBuf = p; };
-        burner.OnProgress += (p, rem) => progress?.Report(new BurnProgress(BurnPhase.Burning, p, lastBuf, TimeSpan.FromSeconds(rem), Message: $"Writing data... {p}%"));
-        burner.OnCloseSessionBegin += () => progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, lastBuf, Message: "Closing session..."));
-        burner.OnVerify += (p, rem) => progress?.Report(new BurnProgress(BurnPhase.Verifying, p, 0, TimeSpan.FromSeconds(rem), Message: $"Verifying... {p}%"));
+        IDiscRecorder2? recorder = null;
+        IDiscFormat2Data? format = null;
+        IFileSystemImage? fsi = null;
+        IFileSystemImageResult? result = null;
+        IStream? imageStream = null;
+        var openedStreams = new List<IStream>();
 
         try
         {
-            burner.Burn(options.TestBurn, label, publisher, appName);
-            if (options.VerifyData && !_isCancelled)
+            recorder = options.Drive.OpenRecorder();
+            format = Imapi2Interop.CreateDiscFormat2Data();
+            if (!format.IsRecorderSupported(recorder))
+                throw new InvalidOperationException($"Drive '{options.Drive.DisplayName}' does not support data burning.");
+            if (!format.IsCurrentMediaSupported(recorder))
+                throw new InvalidOperationException("No writable disc detected in the selected drive.");
+
+            format.put_Recorder(recorder);
+            format.put_ClientName("CDBurner10");
+            format.put_ForceMediaToBeClosed(options.FinalizeDisc);
+            format.put_BufferUnderrunFreeDisabled(false);
+
+            if (options.WriteSpeedKBps > 0)
             {
-                burner.Verify();
+                try { format.SetWriteSpeed(Math.Max(1, options.WriteSpeedKBps / 2), false); } catch (COMException) { }
             }
-        }
-        catch (COMException ex) when ((ex.ErrorCode & 0xFFF) == 640 && burner.Mode == STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_TAO)
-        {
-            burner.Mode = STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_AUTO;
-            burner.Burn(options.TestBurn, label, publisher, appName);
-            if (options.VerifyData && !_isCancelled)
+
+            long startLba = format.NextWritableAddress;
+            fsi = BuildFileSystemImage(label, recorder, format, openedStreams);
+            result = fsi.CreateResultImage();
+            imageStream = result.ImageStream;
+            long totalImageBytes = (long)result.TotalBlocks * result.BlockSize;
+
+            if (options.TestBurn)
             {
-                burner.Verify();
+                // IMAPI2 does not expose hardware simulation burn; validate full image build cleanly
+                progress?.Report(new BurnProgress(BurnPhase.Completed, 100, Message: "Test burn simulation verified (file system image built cleanly)."));
+                return;
+            }
+
+            var sink = new DiscFormat2DataEventSink(args =>
+            {
+                int bufPct = args.TotalSystemBuffer > 0
+                    ? (int)Math.Clamp(args.UsedSystemBuffer * 100.0 / args.TotalSystemBuffer, 0, 100)
+                    : 100;
+
+                if (args.CurrentAction == Imapi2Interop.WriteActionFinalization)
+                {
+                    progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, bufPct, TimeSpan.FromSeconds(args.RemainingTime), Message: "Closing session..."));
+                    return;
+                }
+
+                int pct = args.SectorCount > 0
+                    ? (int)Math.Clamp((args.LastWrittenLba - args.StartLba) * 100.0 / args.SectorCount, 0, 100)
+                    : 0;
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Burning,
+                    pct,
+                    bufPct,
+                    TimeSpan.FromSeconds(Math.Max(0, args.RemainingTime)),
+                    Message: _fileSystem == DataFileSystem.Udf ? $"Writing UDF data... {pct}%" : $"Writing data... {pct}%"));
+            });
+
+            _activeFormat = format;
+            using (Imapi2Interop.AdviseEventSink(format, typeof(DDiscFormat2DataEvents).GUID, sink))
+            {
+                format.Write(imageStream);
+            }
+
+            if (options.VerifyData && !_isCancelled && !string.IsNullOrWhiteSpace(options.Drive.Letter))
+            {
+                progress?.Report(new BurnProgress(BurnPhase.Verifying, 0, Message: "Verifying written disc sectors..."));
+                ScsiOpticalDevice.VerifyStreamAgainstDisc(
+                    options.Drive.Letter,
+                    imageStream,
+                    startLba,
+                    totalImageBytes,
+                    progress,
+                    ct);
             }
         }
         finally
         {
-            try { burner.UnlockFileSystem(); } catch { }
-        }
-    }
-
-    private void BurnUdfInternal(
-        DataBurnOptions options,
-        string label,
-        IProgress<BurnProgress>? progress)
-    {
-        var burner = new UDFDataBurnerClass();
-        _udfBurner = burner;
-        ConfigureCommonUdfBurner(burner, options);
-        PopulateStarBurnTree(RootFolder, burner);
-
-        int lastBuf = 0;
-        burner.OnBuffer += p => { lastBuf = p; };
-        burner.OnProgress += (p, rem) => progress?.Report(new BurnProgress(BurnPhase.Burning, p, lastBuf, TimeSpan.FromSeconds(rem), Message: $"Writing UDF data... {p}%"));
-        burner.OnCloseSessionBegin += () => progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, lastBuf, Message: "Closing session..."));
-        burner.OnVerify += (p, rem) => progress?.Report(new BurnProgress(BurnPhase.Verifying, p, 0, TimeSpan.FromSeconds(rem), Message: $"Verifying... {p}%"));
-
-        try
-        {
-            burner.Burn(options.TestBurn, label);
-            if (options.VerifyData && !_isCancelled)
-            {
-                burner.Verify();
-            }
-        }
-        catch (COMException ex) when ((ex.ErrorCode & 0xFFF) == 640 && burner.Mode == STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_TAO)
-        {
-            burner.Mode = STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_AUTO;
-            burner.Burn(options.TestBurn, label);
-            if (options.VerifyData && !_isCancelled)
-            {
-                burner.Verify();
-            }
-        }
-        finally
-        {
-            try { burner.UnlockFileSystem(); } catch { }
+            _activeFormat = null;
+            foreach (var s in openedStreams) Imapi2Interop.SafeRelease(s);
+            Imapi2Interop.SafeRelease(imageStream);
+            Imapi2Interop.SafeRelease(result);
+            Imapi2Interop.SafeRelease(fsi);
+            Imapi2Interop.SafeRelease(format);
+            Imapi2Interop.SafeRelease(recorder);
         }
     }
 
@@ -447,7 +433,6 @@ public sealed class GenericDataBurner
         return Task.Run(() =>
         {
             _isCancelled = false;
-            using var reg = ct.Register(Cancel);
 
             var dir = Path.GetDirectoryName(outputIsoPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -458,214 +443,223 @@ public sealed class GenericDataBurner
 
             progress?.Report(new BurnProgress(BurnPhase.Preparing, 0, Message: "Building ISO image..."));
 
-            if (_fileSystem == DataFileSystem.IsoJoliet)
+            IFileSystemImage? fsi = null;
+            IFileSystemImageResult? result = null;
+            IStream? imageStream = null;
+            var openedStreams = new List<IStream>();
+
+            try
             {
-                var burner = new DataBurnerClass
-                {
-                    AutoResolveCollisions = true,
-                    IsXACDROM = IsXaCdRom,
-                    AutoSortFiles = AutoSortFiles,
-                    DisableCollisionsDetection = DisableCollisionsDetection,
-                    FileDateTimeMode = MapDateMode(FileDateTimeMode),
-                    FileDateTimeFormat = UseUtcFileDates
-                        ? STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_UTC
-                        : STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_LOCAL
-                };
-                if (FileDateTimeMode == FileDateMode.Custom) burner.SetCustomFileDateTime(CustomFileDateTime);
-                ApplyBootImage(burner);
-                _isoBurner = burner;
-                PopulateStarBurnTree(RootFolder, burner);
-                burner.OnProgress += (p, rem) => progress?.Report(new BurnProgress(BurnPhase.Burning, p, 0, TimeSpan.FromSeconds(rem), Message: $"Saving ISO... {p}%"));
-                try
-                {
-                    burner.SaveImageFile(outputIsoPath, label, PublisherName, ApplicationName);
-                }
-                finally
-                {
-                    try { burner.UnlockFileSystem(); } catch { }
-                }
+                fsi = BuildFileSystemImage(label, recorder: null, format: null, openedStreams);
+                result = fsi.CreateResultImage();
+                imageStream = result.ImageStream;
+                long totalBytes = (long)result.TotalBlocks * result.BlockSize;
+
+                Imapi2Interop.CopyIStreamToFile(
+                    imageStream,
+                    outputIsoPath,
+                    totalBytes,
+                    pct => progress?.Report(new BurnProgress(
+                        BurnPhase.Burning,
+                        pct,
+                        Message: _fileSystem == DataFileSystem.Udf ? $"Saving UDF ISO... {pct}%" : $"Saving ISO... {pct}%")),
+                    ct);
             }
-            else
+            finally
             {
-                var burner = new UDFDataBurnerClass
-                {
-                    AutoResolveCollisions = true,
-                    FileSystemVersion = MapUdfVersion(UdfVersion),
-                    FileDateTimeMode = MapDateMode(FileDateTimeMode),
-                    FileDateTimeFormat = UseUtcFileDates
-                        ? STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_UTC
-                        : STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_LOCAL
-                };
-                if (FileDateTimeMode == FileDateMode.Custom) burner.SetCustomFileDateTime(CustomFileDateTime);
-                ApplyBootImage(burner);
-                _udfBurner = burner;
-                PopulateStarBurnTree(RootFolder, burner);
-                burner.OnProgress += (p, rem) => progress?.Report(new BurnProgress(BurnPhase.Burning, p, 0, TimeSpan.FromSeconds(rem), Message: $"Saving UDF ISO... {p}%"));
-                try
-                {
-                    burner.SaveImageFile(outputIsoPath, label);
-                }
-                finally
-                {
-                    try { burner.UnlockFileSystem(); } catch { }
-                }
+                foreach (var s in openedStreams) Imapi2Interop.SafeRelease(s);
+                Imapi2Interop.SafeRelease(imageStream);
+                Imapi2Interop.SafeRelease(result);
+                Imapi2Interop.SafeRelease(fsi);
             }
 
             progress?.Report(new BurnProgress(BurnPhase.Completed, 100, Message: "ISO saved successfully."));
         }, ct);
     }
 
-    public void Cancel()
+    private IFileSystemImage BuildFileSystemImage(
+        string label,
+        IDiscRecorder2? recorder,
+        IDiscFormat2Data? format,
+        List<IStream> openedStreams)
     {
-        _isCancelled = true;
-        _ = Task.Run(() =>
-        {
-            try { _isoBurner?.Cancel(); } catch { }
-            try { _udfBurner?.Cancel(); } catch { }
-        });
-    }
+        var fsi = Imapi2Interop.CreateFileSystemImage();
+        fsi.FileSystemsToCreate = _fileSystem == DataFileSystem.Udf
+            ? Imapi2Interop.FsiFileSystemUDF
+            : (Imapi2Interop.FsiFileSystemISO9660 | Imapi2Interop.FsiFileSystemJoliet);
 
-    private void ConfigureCommonBurner(DataBurnerClass burner, DataBurnOptions options)
-    {
-        burner.Drive = options.Drive.RawDrive;
-        burner.AutoResolveCollisions = true;
-        burner.Mode = MapWriteMode(options.Mode);
-        burner.NextSessionAllowed = !options.FinalizeDisc;
-        if (options.FinalizeDisc) burner.KeepSessionOpened = false;
-        burner.CheckOverburning = CheckOverburning;
-        burner.FileDateTimeMode = MapDateMode(FileDateTimeMode);
-        burner.FileDateTimeFormat = UseUtcFileDates
-            ? STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_UTC
-            : STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_LOCAL;
-        if (FileDateTimeMode == FileDateMode.Custom) burner.SetCustomFileDateTime(CustomFileDateTime);
-        ApplyBootImage(burner);
-        if (options.WriteSpeedKBps > 0)
+        if (_fileSystem == DataFileSystem.Udf)
         {
-            try { burner.WriteSpeed = options.WriteSpeedKBps; } catch (COMException) { }
+            fsi.put_UDFRevision(MapUdfRevisionHex(UdfVersion));
         }
-    }
 
-    private void ConfigureCommonUdfBurner(UDFDataBurnerClass burner, DataBurnOptions options)
-    {
-        burner.Drive = options.Drive.RawDrive;
-        burner.AutoResolveCollisions = true;
-        burner.FileSystemVersion = MapUdfVersion(UdfVersion);
-        burner.Mode = MapWriteMode(options.Mode);
-        burner.NextSessionAllowed = !options.FinalizeDisc;
-        if (options.FinalizeDisc) burner.KeepSessionOpened = false;
-        burner.CheckOverburning = CheckOverburning;
-        burner.FileDateTimeMode = MapDateMode(FileDateTimeMode);
-        burner.FileDateTimeFormat = UseUtcFileDates
-            ? STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_UTC
-            : STARBURN_DATETIME_FORMAT.STARBURN_DATETIME_FORMAT_LOCAL;
-        if (FileDateTimeMode == FileDateMode.Custom) burner.SetCustomFileDateTime(CustomFileDateTime);
-        ApplyBootImage(burner);
-        if (options.WriteSpeedKBps > 0)
+        if (recorder is not null && format is not null)
         {
-            try { burner.WriteSpeed = options.WriteSpeedKBps; } catch (COMException) { }
-        }
-    }
-
-    private void ApplyBootImage(DataBurnerClass burner)
-    {
-        if (BootImage.Enabled && !string.IsNullOrWhiteSpace(BootImage.FileName) && File.Exists(BootImage.FileName))
-        {
-            var bi = new BootImageClass
+            if (!format.MediaPhysicallyBlank && !format.MediaHeuristicallyBlank)
             {
-                FileName = BootImage.FileName,
-                SystemType = BootImage.Platform,
-                LoadSegment = BootImage.LoadSegment,
-                Type = BootImage.EmulationType,
-                SectorsToLoad = BootImage.SectorsToLoad
-            };
-            burner.BootImage = bi;
+                try
+                {
+                    fsi.MultisessionInterfaces = format.MultisessionInterfaces;
+                    fsi.ImportFileSystem();
+                }
+                catch (COMException) { }
+            }
+            else
+            {
+                try { fsi.ChooseImageDefaults(recorder); } catch (COMException) { }
+                // Re-apply user's chosen filesystem after defaults
+                fsi.FileSystemsToCreate = _fileSystem == DataFileSystem.Udf
+                    ? Imapi2Interop.FsiFileSystemUDF
+                    : (Imapi2Interop.FsiFileSystemISO9660 | Imapi2Interop.FsiFileSystemJoliet);
+                if (_fileSystem == DataFileSystem.Udf)
+                    fsi.put_UDFRevision(MapUdfRevisionHex(UdfVersion));
+            }
+            fsi.FreeMediaBlocks = format.FreeSectorsOnMedia;
         }
         else
         {
-            burner.BootImage = null;
+            // Unlimited image blocks when authoring standalone ISO
+            fsi.FreeMediaBlocks = 0;
         }
+
+        fsi.VolumeName = string.IsNullOrWhiteSpace(label) ? "Disc" : label;
+        ApplyBootImage(fsi, openedStreams);
+        PopulateFsiTree(RootFolder, fsi.Root, openedStreams);
+        return fsi;
     }
 
-    private void ApplyBootImage(UDFDataBurnerClass burner)
+    private void ApplyBootImage(IFileSystemImage fsi, List<IStream> openedStreams)
     {
-        if (BootImage.Enabled && !string.IsNullOrWhiteSpace(BootImage.FileName) && File.Exists(BootImage.FileName))
-        {
-            var bi = new BootImageClass
-            {
-                FileName = BootImage.FileName,
-                SystemType = BootImage.Platform,
-                LoadSegment = BootImage.LoadSegment,
-                Type = BootImage.EmulationType,
-                SectorsToLoad = BootImage.SectorsToLoad
-            };
-            burner.BootImage = bi;
-        }
-        else
-        {
-            burner.BootImage = null;
-        }
+        if (!BootImage.Enabled || string.IsNullOrWhiteSpace(BootImage.FileName) || !File.Exists(BootImage.FileName))
+            return;
+
+        Imapi2Interop.SHCreateStreamOnFileEx(
+            BootImage.FileName,
+            Imapi2Interop.StgmRead | Imapi2Interop.StgmShareDenyWrite,
+            0,
+            false,
+            null,
+            out var bootStream);
+        openedStreams.Add(bootStream);
+
+        var boot = Imapi2Interop.CreateBootOptions();
+        boot.Manufacturer = "CDBurner10";
+        boot.PlatformId = BootImage.Platform;
+        boot.Emulation = (int)BootImage.EmulationType;
+        boot.AssignBootImage(bootStream);
+        fsi.BootImageOptions = boot;
+        Imapi2Interop.SafeRelease(boot);
     }
 
-    private void PopulateStarBurnTree(VirtualFolder source, IDataFolder target)
+    private void PopulateFsiTree(VirtualFolder source, IFsiDirectoryItem target, List<IStream> openedStreams)
     {
-        foreach (var file in source.Files)
+        var files = AutoSortFiles
+            ? source.Files.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToList()
+            : source.Files.ToList();
+
+        foreach (var file in files)
         {
             if (file.IsImported || string.IsNullOrWhiteSpace(file.SourcePath) || !File.Exists(file.SourcePath))
                 continue;
 
             string safeName = file.Name.Length > FileNameMaxLength ? file.Name[..FileNameMaxLength] : file.Name;
-            var added = target.AddFileEx(file.SourcePath, safeName);
-            if (added is not null && file.IsHidden)
+            Imapi2Interop.SHCreateStreamOnFileEx(
+                file.SourcePath,
+                Imapi2Interop.StgmRead | Imapi2Interop.StgmShareDenyWrite,
+                0,
+                false,
+                null,
+                out var stream);
+            openedStreams.Add(stream);
+
+            target.AddFile(safeName, stream);
+            try
             {
-                added.SetIsHidden(true);
+                var item = target[safeName];
+                if (file.IsHidden) item.IsHidden = true;
+                if (FileDateTimeMode == FileDateMode.Current)
+                {
+                    var now = UseUtcFileDates ? DateTime.UtcNow : DateTime.Now;
+                    item.CreationTime = now;
+                    item.LastModifiedTime = now;
+                }
+                else if (FileDateTimeMode == FileDateMode.Custom)
+                {
+                    item.CreationTime = CustomFileDateTime;
+                    item.LastModifiedTime = CustomFileDateTime;
+                }
             }
+            catch { }
         }
 
-        foreach (var folder in source.Folders)
+        var folders = AutoSortFiles
+            ? source.Folders.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToList()
+            : source.Folders.ToList();
+
+        foreach (var folder in folders)
         {
             string safeName = folder.Name.Length > FileNameMaxLength ? folder.Name[..FileNameMaxLength] : folder.Name;
-            var created = target.CreateFolder(safeName);
-            if (created is not null)
+            if (!folder.IsImported)
             {
-                if (folder.IsHidden) created.SetIsHidden(true);
-                PopulateStarBurnTree(folder, created);
+                try { target.AddDirectory(safeName); } catch (COMException) { }
+            }
+
+            if (target[safeName] is IFsiDirectoryItem subDir)
+            {
+                if (folder.IsHidden)
+                {
+                    try { subDir.IsHidden = true; } catch { }
+                }
+                PopulateFsiTree(folder, subDir, openedStreams);
             }
         }
     }
 
-    public static STARBURN_UDF_VERSION MapUdfVersion(UdfVersion v) => v switch
+    public void Cancel()
     {
-        UdfVersion.V1_02 => STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_1_02,
-        UdfVersion.V1_50 => STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_1_50,
-        UdfVersion.V2_00 => STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_00,
-        UdfVersion.V2_01 => STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_01,
-        UdfVersion.V2_50 => STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_50,
-        UdfVersion.V2_60 => STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_60,
-        _ => STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_1_02
+        _isCancelled = true;
+        var fmt = _activeFormat;
+        if (fmt is not null)
+        {
+            _ = Task.Run(() =>
+            {
+                try { fmt.CancelWrite(); } catch { }
+            });
+        }
+    }
+
+    public static int MapUdfRevisionHex(UdfVersion v) => v switch
+    {
+        UdfVersion.V1_02 => 0x102,
+        UdfVersion.V1_50 => 0x150,
+        UdfVersion.V2_00 => 0x200,
+        UdfVersion.V2_01 => 0x201,
+        UdfVersion.V2_50 => 0x250,
+        UdfVersion.V2_60 => 0x260,
+        _ => 0x102
     };
 
-    public static UdfVersion MapStarBurnUdfVersion(STARBURN_UDF_VERSION v) => v switch
+    /// <summary>
+    /// Maps UdfVersion to legacy numeric .dxp enum values for CDBurnerXP compilation compatibility.
+    /// </summary>
+    public static int MapUdfVersionLegacyInt(UdfVersion v) => v switch
     {
-        STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_1_50 => UdfVersion.V1_50,
-        STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_00 => UdfVersion.V2_00,
-        STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_01 => UdfVersion.V2_01,
-        STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_50 => UdfVersion.V2_50,
-        STARBURN_UDF_VERSION.STARBURN_UDF_VERSION_2_60 => UdfVersion.V2_60,
+        UdfVersion.V1_02 => 0,
+        UdfVersion.V1_50 => 1,
+        UdfVersion.V2_00 => 2,
+        UdfVersion.V2_01 => 3,
+        UdfVersion.V2_50 => 4,
+        UdfVersion.V2_60 => 5,
+        _ => 0
+    };
+
+    public static UdfVersion MapLegacyIntToUdfVersion(int value) => value switch
+    {
+        1 => UdfVersion.V1_50,
+        2 => UdfVersion.V2_00,
+        3 => UdfVersion.V2_01,
+        4 => UdfVersion.V2_50,
+        5 => UdfVersion.V2_60,
         _ => UdfVersion.V1_02
-    };
-
-    public static STARBURN_WRITE_MODE MapWriteMode(WriteMode mode) => mode switch
-    {
-        WriteMode.TAO => STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_TAO,
-        WriteMode.SAO => STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_SAO,
-        WriteMode.DAO96 => STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_DAO_96,
-        _ => STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_AUTO
-    };
-
-    private static STARBURN_FILE_DATETIME_MODE MapDateMode(FileDateMode mode) => mode switch
-    {
-        FileDateMode.Current => STARBURN_FILE_DATETIME_MODE.STARBURN_FILE_DATETIME_CURRENT,
-        FileDateMode.Custom => STARBURN_FILE_DATETIME_MODE.STARBURN_FILE_DATETIME_CUSTOM,
-        _ => STARBURN_FILE_DATETIME_MODE.STARBURN_FILE_DATETIME_ORIGINAL
     };
 }

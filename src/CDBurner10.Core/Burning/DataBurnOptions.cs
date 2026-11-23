@@ -1,5 +1,3 @@
-using RocketDivision.StarBurnX;
-
 namespace CDBurner10.Core.Burning;
 
 public enum DataFileSystem
@@ -37,7 +35,7 @@ public sealed class BootImageOptions
 {
     public bool Enabled { get; set; }
     public string FileName { get; set; } = string.Empty;
-    public STARBURN_BOOT_IMAGE_TYPE EmulationType { get; set; } = STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_CDROM;
+    public BootEmulationType EmulationType { get; set; } = BootEmulationType.NoEmulation;
     public int Platform { get; set; } = 0; // 0 = 80x86, 1 = PowerPC, 2 = Mac
     public int LoadSegment { get; set; } = 0x7C0;
     public int SectorsToLoad { get; set; } = 1;

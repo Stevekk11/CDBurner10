@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using RocketDivision.StarBurnX;
+using System.Runtime.InteropServices.ComTypes;
+using CDBurner10.Core.Native;
 
 namespace CDBurner10.Core.Burning;
 
@@ -24,7 +25,7 @@ public sealed class DvdVideoBurnOptions
 
 public sealed class DvdVideoBurner
 {
-    private DVDVideoBurnerClass? _burner;
+    private IDiscFormat2Data? _activeFormat;
     private bool _isCancelled;
 
     public bool IsCancelled => _isCancelled;
@@ -34,7 +35,6 @@ public sealed class DvdVideoBurner
         if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
             return (false, "VIDEO_TS directory does not exist.", 0);
 
-        // If user selected parent folder containing VIDEO_TS, allow checking inside
         string effectiveDir = folderPath;
         var nested = Path.Combine(folderPath, "VIDEO_TS");
         if (Directory.Exists(nested)) effectiveDir = nested;
@@ -73,27 +73,11 @@ public sealed class DvdVideoBurner
             for (int copy = 1; copy <= copies; copy++)
             {
                 ct.ThrowIfCancellationRequested();
-                var burner = CreateConfiguredBurner(options);
-                burner.Drive = options.Drive.RawDrive;
-                if (options.WriteSpeedKBps > 0)
-                {
-                    try { burner.WriteSpeed = options.WriteSpeedKBps; } catch (COMException) { }
-                }
-
-                WireEvents(burner, progress);
-                _burner = burner;
-
-                string label = DataCompilation.ReplaceDiscLabelVariables(options.VolumeName);
-                burner.Burn(options.TestBurn, label, options.PublisherName, options.ApplicationName);
-
-                if (options.VerifyData && !_isCancelled)
-                {
-                    burner.Verify();
-                }
+                BurnWithImapi2(options, progress, ct);
 
                 if (options.EjectAfterBurn && !_isCancelled)
                 {
-                    try { options.Drive.RawDrive.Eject(); } catch (COMException) { }
+                    try { options.Drive.Eject(); } catch { }
                 }
             }
 
@@ -120,55 +104,240 @@ public sealed class DvdVideoBurner
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
             _isCancelled = false;
-            using var reg = ct.Register(Cancel);
+            progress?.Report(new BurnProgress(BurnPhase.Preparing, 0, Message: "Building DVD-Video UDF 1.02 + ISO9660 bridge image..."));
 
-            var burner = CreateConfiguredBurner(options);
-            WireEvents(burner, progress);
-            _burner = burner;
+            IFileSystemImage? fsi = null;
+            IFileSystemImageResult? result = null;
+            IStream? imageStream = null;
+            var openedStreams = new List<IStream>();
 
-            string label = DataCompilation.ReplaceDiscLabelVariables(options.VolumeName);
-            burner.SaveImageFile(outputIsoPath, label, options.PublisherName, options.ApplicationName);
+            try
+            {
+                fsi = BuildDvdVideoImage(options, recorder: null, openedStreams);
+                result = fsi.CreateResultImage();
+                imageStream = result.ImageStream;
+                long totalBytes = (long)result.TotalBlocks * result.BlockSize;
+
+                Imapi2Interop.CopyIStreamToFile(
+                    imageStream,
+                    outputIsoPath,
+                    totalBytes,
+                    pct => progress?.Report(new BurnProgress(BurnPhase.Burning, pct, Message: $"Saving DVD-Video ISO... {pct}%")),
+                    ct);
+            }
+            finally
+            {
+                foreach (var s in openedStreams) Imapi2Interop.SafeRelease(s);
+                Imapi2Interop.SafeRelease(imageStream);
+                Imapi2Interop.SafeRelease(result);
+                Imapi2Interop.SafeRelease(fsi);
+            }
 
             progress?.Report(new BurnProgress(BurnPhase.Completed, 100, Message: "DVD-Video ISO saved successfully."));
         }, ct);
     }
 
+    private void BurnWithImapi2(
+        DvdVideoBurnOptions options,
+        IProgress<BurnProgress>? progress,
+        CancellationToken ct)
+    {
+        IDiscRecorder2? recorder = null;
+        IDiscFormat2Data? format = null;
+        IFileSystemImage? fsi = null;
+        IFileSystemImageResult? result = null;
+        IStream? imageStream = null;
+        var openedStreams = new List<IStream>();
+
+        try
+        {
+            recorder = options.Drive!.OpenRecorder();
+            format = Imapi2Interop.CreateDiscFormat2Data();
+            if (!format.IsRecorderSupported(recorder))
+                throw new InvalidOperationException($"Drive '{options.Drive.DisplayName}' does not support DVD burning.");
+            if (!format.IsCurrentMediaSupported(recorder))
+                throw new InvalidOperationException("No writable DVD disc detected in the selected drive.");
+
+            format.put_Recorder(recorder);
+            format.put_ClientName("CDBurner10");
+            format.put_ForceMediaToBeClosed(true);
+            format.put_DisableConsumerDvdCompatibilityMode(!options.Padding);
+            format.put_BufferUnderrunFreeDisabled(false);
+
+            if (options.WriteSpeedKBps > 0)
+            {
+                try { format.SetWriteSpeed(Math.Max(1, options.WriteSpeedKBps / 2), false); } catch (COMException) { }
+            }
+
+            long startLba = format.NextWritableAddress;
+            fsi = BuildDvdVideoImage(options, recorder, openedStreams);
+            result = fsi.CreateResultImage();
+            imageStream = result.ImageStream;
+            long totalBytes = (long)result.TotalBlocks * result.BlockSize;
+
+            if (options.TestBurn)
+            {
+                progress?.Report(new BurnProgress(BurnPhase.Completed, 100, Message: "DVD-Video test burn validated."));
+                return;
+            }
+
+            var sink = new DiscFormat2DataEventSink(args =>
+            {
+                int bufPct = args.TotalSystemBuffer > 0
+                    ? (int)Math.Clamp(args.UsedSystemBuffer * 100.0 / args.TotalSystemBuffer, 0, 100)
+                    : 100;
+
+                if (args.CurrentAction == Imapi2Interop.WriteActionFinalization)
+                {
+                    progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, bufPct, TimeSpan.FromSeconds(args.RemainingTime), Message: "Closing DVD session..."));
+                    return;
+                }
+
+                int pct = args.SectorCount > 0
+                    ? (int)Math.Clamp((args.LastWrittenLba - args.StartLba) * 100.0 / args.SectorCount, 0, 100)
+                    : 0;
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Burning,
+                    pct,
+                    bufPct,
+                    TimeSpan.FromSeconds(Math.Max(0, args.RemainingTime)),
+                    Message: $"Writing DVD-Video... {pct}%"));
+            });
+
+            _activeFormat = format;
+            using (Imapi2Interop.AdviseEventSink(format, typeof(DDiscFormat2DataEvents).GUID, sink))
+            {
+                format.Write(imageStream);
+            }
+
+            if (options.VerifyData && !_isCancelled && !string.IsNullOrWhiteSpace(options.Drive.Letter))
+            {
+                progress?.Report(new BurnProgress(BurnPhase.Verifying, 0, Message: "Verifying DVD-Video..."));
+                ScsiOpticalDevice.VerifyStreamAgainstDisc(
+                    options.Drive.Letter,
+                    imageStream,
+                    startLba,
+                    totalBytes,
+                    progress,
+                    ct);
+            }
+        }
+        finally
+        {
+            _activeFormat = null;
+            foreach (var s in openedStreams) Imapi2Interop.SafeRelease(s);
+            Imapi2Interop.SafeRelease(imageStream);
+            Imapi2Interop.SafeRelease(result);
+            Imapi2Interop.SafeRelease(fsi);
+            Imapi2Interop.SafeRelease(format);
+            Imapi2Interop.SafeRelease(recorder);
+        }
+    }
+
+    private static IFileSystemImage BuildDvdVideoImage(
+        DvdVideoBurnOptions options,
+        IDiscRecorder2? recorder,
+        List<IStream> openedStreams)
+    {
+        var fsi = Imapi2Interop.CreateFileSystemImage();
+        // DVD-Video specification requires ISO9660 + UDF 1.02 bridge
+        fsi.FileSystemsToCreate = Imapi2Interop.FsiFileSystemISO9660 | Imapi2Interop.FsiFileSystemUDF;
+        fsi.put_UDFRevision(0x102);
+
+        if (recorder is not null)
+        {
+            try { fsi.SetMaxMediaBlocksFromDevice(recorder); } catch (COMException) { }
+        }
+        else
+        {
+            fsi.FreeMediaBlocks = 0;
+        }
+
+        string label = DataCompilation.ReplaceDiscLabelVariables(options.VolumeName);
+        if (string.IsNullOrWhiteSpace(label)) label = "DVD_VIDEO";
+        if (label.Length > 32) label = label[..32];
+        fsi.VolumeName = label;
+
+        string videoTsSource = options.VideoTsDirectory;
+        string nestedVideoTs = Path.Combine(videoTsSource, "VIDEO_TS");
+        if (Directory.Exists(nestedVideoTs)) videoTsSource = nestedVideoTs;
+
+        fsi.Root.AddDirectory("AUDIO_TS");
+        fsi.Root.AddDirectory("VIDEO_TS");
+
+        if (fsi.Root["VIDEO_TS"] is IFsiDirectoryItem videoDir)
+        {
+            // Sort VIDEO_TS files in DVD-Video spec order: VIDEO_TS.IFO, VIDEO_TS.VOB, VIDEO_TS.BUP, then VTS_xx_*
+            var orderedFiles = Directory.GetFiles(videoTsSource)
+                .OrderBy(f => GetDvdFileSortKey(Path.GetFileName(f)), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var file in orderedFiles)
+            {
+                Imapi2Interop.SHCreateStreamOnFileEx(
+                    file,
+                    Imapi2Interop.StgmRead | Imapi2Interop.StgmShareDenyWrite,
+                    0,
+                    false,
+                    null,
+                    out var stream);
+                openedStreams.Add(stream);
+                videoDir.AddFile(Path.GetFileName(file).ToUpperInvariant(), stream);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.AudioTsDirectory) && Directory.Exists(options.AudioTsDirectory))
+        {
+            if (fsi.Root["AUDIO_TS"] is IFsiDirectoryItem audioDir)
+            {
+                foreach (var file in Directory.GetFiles(options.AudioTsDirectory))
+                {
+                    Imapi2Interop.SHCreateStreamOnFileEx(
+                        file,
+                        Imapi2Interop.StgmRead | Imapi2Interop.StgmShareDenyWrite,
+                        0,
+                        false,
+                        null,
+                        out var stream);
+                    openedStreams.Add(stream);
+                    audioDir.AddFile(Path.GetFileName(file).ToUpperInvariant(), stream);
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.ExtraFilesDirectory) && Directory.Exists(options.ExtraFilesDirectory))
+        {
+            fsi.Root.AddTree(options.ExtraFilesDirectory, includeBaseDirectory: false);
+        }
+
+        return fsi;
+    }
+
+    private static string GetDvdFileSortKey(string fileName)
+    {
+        string upper = fileName.ToUpperInvariant();
+        if (upper == "VIDEO_TS.IFO") return "00_0";
+        if (upper == "VIDEO_TS.VOB") return "00_1";
+        if (upper == "VIDEO_TS.BUP") return "00_2";
+        if (upper.StartsWith("VTS_") && upper.Length >= 10)
+        {
+            string title = upper[4..6];
+            string extOrder = upper.EndsWith(".IFO") ? "0" : upper.EndsWith(".VOB") ? "1" : "2";
+            return $"01_{title}_{extOrder}_{upper}";
+        }
+        return $"99_{upper}";
+    }
+
     public void Cancel()
     {
         _isCancelled = true;
-        _ = Task.Run(() =>
+        var fmt = _activeFormat;
+        if (fmt is not null)
         {
-            try { _burner?.Cancel(); } catch { }
-        });
-    }
-
-    private static DVDVideoBurnerClass CreateConfiguredBurner(DvdVideoBurnOptions options)
-    {
-        var burner = new DVDVideoBurnerClass
-        {
-            VideoDirectory = options.VideoTsDirectory,
-            KeepSessionOpened = false,
-            NextSessionAllowed = false,
-            DoubleLayerCompatibleMode = options.DoubleLayerCompatibleMode,
-            Padding = options.Padding,
-            PatchingIFOBUP = options.PatchingIfoBup
-        };
-        if (!string.IsNullOrWhiteSpace(options.AudioTsDirectory))
-            burner.AudioDirectory = options.AudioTsDirectory;
-        if (!string.IsNullOrWhiteSpace(options.ExtraFilesDirectory))
-            burner.ExtraFilesDirectory = options.ExtraFilesDirectory;
-        return burner;
-    }
-
-    private static void WireEvents(DVDVideoBurnerClass burner, IProgress<BurnProgress>? progress)
-    {
-        int lastBuf = 0;
-        burner.OnBuffer += p => lastBuf = p;
-        burner.OnProgress += (p, rem) =>
-            progress?.Report(new BurnProgress(BurnPhase.Burning, p, lastBuf, TimeSpan.FromSeconds(rem), Message: $"Writing DVD-Video... {p}%"));
-        burner.OnCloseSessionBegin += () =>
-            progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, lastBuf, Message: "Closing DVD session..."));
-        burner.OnVerify += (p, rem) =>
-            progress?.Report(new BurnProgress(BurnPhase.Verifying, p, 0, TimeSpan.FromSeconds(rem), Message: $"Verifying DVD-Video... {p}%"));
+            _ = Task.Run(() =>
+            {
+                try { fmt.CancelWrite(); } catch { }
+            });
+        }
     }
 }

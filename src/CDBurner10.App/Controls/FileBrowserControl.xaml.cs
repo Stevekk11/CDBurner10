@@ -37,7 +37,7 @@ public sealed class FileSystemEntryItem
         ".mp3" or ".flac" or ".wav" or ".ogg" or ".wma" or ".opus" or ".m4a" or ".ape" or ".wv" or ".mpc" or ".aif" or ".aiff" => "\uE8D6",
         ".mp4" or ".mkv" or ".avi" or ".mov" or ".vob" or ".wmv" => "\uE714",
         ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".webp" => "\uEB9F",
-        ".iso" or ".bin" or ".nrg" or ".mds" or ".cue" or ".b5i" => "\uE958",
+        ".iso" or ".bin" or ".nrg" or ".cue" or ".b5i" => "\uE958",
         ".zip" or ".7z" or ".rar" or ".tar" or ".gz" => "\uF012",
         ".exe" or ".msi" => "\uE756",
         _ => "\uE8A5"

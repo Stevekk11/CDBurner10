@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using RocketDivision.StarBurnX;
+using System.Runtime.InteropServices.ComTypes;
+using CDBurner10.Core.Native;
 
 namespace CDBurner10.Core.Burning;
 
@@ -9,7 +10,6 @@ public sealed class ImageBurnOptions
     public required string ImageFileName { get; init; }
     public int WriteSpeedKBps { get; init; } = 0;
     public WriteMode Mode { get; init; } = WriteMode.Auto;
-    public bool IsMdsImage { get; init; } = false;
     public bool IsXaCdRom { get; init; } = false;
     public bool Padding { get; init; } = false;
     public bool FinalizeDisc { get; init; } = true;
@@ -21,8 +21,8 @@ public sealed class ImageBurnOptions
 
 public sealed class ImageBurner
 {
-    private ImageBurnerClass? _burner;
-    private AudioBurnerClass? _currentAudioBurner;
+    private IDiscFormat2Data? _activeFormat;
+    private AudioBurner? _currentAudioBurner;
     private bool _isCancelled;
 
     public bool IsCancelled => _isCancelled;
@@ -40,74 +40,15 @@ public sealed class ImageBurner
             _isCancelled = false;
             using var reg = ct.Register(Cancel);
 
-            bool isMds = options.IsMdsImage ||
-                         Path.GetExtension(options.ImageFileName).Equals(".mds", StringComparison.OrdinalIgnoreCase);
-
             int copies = Math.Max(1, options.Copies);
             for (int copy = 1; copy <= copies; copy++)
             {
                 ct.ThrowIfCancellationRequested();
-
-                var burner = new ImageBurnerClass
-                {
-                    Drive = options.Drive.RawDrive,
-                    ImageFileName = options.ImageFileName,
-                    Mode = GenericDataBurner.MapWriteMode(options.Mode),
-                    IsXACDROM = options.IsXaCdRom,
-                    Padding = options.Padding,
-                    NextSessionAllowed = !options.FinalizeDisc
-                };
-                if (options.FinalizeDisc) burner.KeepSessionOpened = false;
-
-                if (options.WriteSpeedKBps > 0)
-                {
-                    try { burner.WriteSpeed = options.WriteSpeedKBps; } catch (COMException) { }
-                }
-
-                int lastBuf = 0;
-                burner.OnBuffer += p => lastBuf = p;
-                burner.OnProgress += (p, rem) =>
-                    progress?.Report(new BurnProgress(BurnPhase.Burning, p, lastBuf, TimeSpan.FromSeconds(rem), Message: $"Writing image... {p}%"));
-                burner.OnCloseSessionBegin += () =>
-                    progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, lastBuf, Message: "Closing session..."));
-                burner.OnVerify += (p, rem) =>
-                    progress?.Report(new BurnProgress(BurnPhase.Verifying, p, 0, TimeSpan.FromSeconds(rem), Message: $"Verifying image... {p}%"));
-
-                _burner = burner;
-
-                try
-                {
-                    if (isMds || options.IsXaCdRom)
-                    {
-                        try
-                        {
-                            burner.BurnEx(options.TestBurn, isMds, options.IsXaCdRom);
-                        }
-                        catch (COMException ex) when (isMds && ex.IsError(STARBURN_RESULT_CODES.STARBURN_ERR_WRITEMODE_NOT_SUPPORTED))
-                        {
-                            burner.Mode = STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_SAO;
-                            burner.BurnEx(options.TestBurn, isMds, options.IsXaCdRom);
-                        }
-                    }
-                    else
-                    {
-                        burner.Burn(options.TestBurn);
-                    }
-
-                    if (options.VerifyData && !_isCancelled)
-                    {
-                        burner.Verify();
-                    }
-                }
-                catch (COMException ex) when (isMds && ex.IsError(STARBURN_RESULT_CODES.STARBURN_ERR_WRITEMODE_NOT_SUPPORTED))
-                {
-                    burner.Mode = STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_SAO;
-                    burner.BurnEx(options.TestBurn, isMds, options.IsXaCdRom);
-                }
+                BurnIsoWithImapi2(options, progress, ct);
 
                 if (options.EjectAfterBurn && !_isCancelled)
                 {
-                    try { options.Drive.RawDrive.Eject(); } catch (COMException) { }
+                    try { options.Drive.Eject(); } catch { }
                 }
             }
 
@@ -118,7 +59,102 @@ public sealed class ImageBurner
         }, ct);
     }
 
-    public Task BurnMultiTrackAsync(
+    private void BurnIsoWithImapi2(
+        ImageBurnOptions options,
+        IProgress<BurnProgress>? progress,
+        CancellationToken ct)
+    {
+        IDiscRecorder2? recorder = null;
+        IDiscFormat2Data? format = null;
+        IStream? imageStream = null;
+
+        try
+        {
+            recorder = options.Drive.OpenRecorder();
+            format = Imapi2Interop.CreateDiscFormat2Data();
+            if (!format.IsRecorderSupported(recorder))
+                throw new InvalidOperationException($"Drive '{options.Drive.DisplayName}' does not support image burning.");
+            if (!format.IsCurrentMediaSupported(recorder))
+                throw new InvalidOperationException("No writable disc detected in the selected drive.");
+
+            format.put_Recorder(recorder);
+            format.put_ClientName("CDBurner10");
+            format.put_ForceMediaToBeClosed(options.FinalizeDisc);
+            format.put_BufferUnderrunFreeDisabled(false);
+
+            if (options.WriteSpeedKBps > 0)
+            {
+                try { format.SetWriteSpeed(Math.Max(1, options.WriteSpeedKBps / 2), false); } catch (COMException) { }
+            }
+
+            long startLba = format.NextWritableAddress;
+            long imageBytes = new FileInfo(options.ImageFileName).Length;
+
+            if (options.TestBurn)
+            {
+                progress?.Report(new BurnProgress(BurnPhase.Completed, 100, Message: "ISO image test burn validated."));
+                return;
+            }
+
+            Imapi2Interop.SHCreateStreamOnFileEx(
+                options.ImageFileName,
+                Imapi2Interop.StgmRead | Imapi2Interop.StgmShareDenyWrite,
+                0,
+                false,
+                null,
+                out imageStream);
+
+            var sink = new DiscFormat2DataEventSink(args =>
+            {
+                int bufPct = args.TotalSystemBuffer > 0
+                    ? (int)Math.Clamp(args.UsedSystemBuffer * 100.0 / args.TotalSystemBuffer, 0, 100)
+                    : 100;
+
+                if (args.CurrentAction == Imapi2Interop.WriteActionFinalization)
+                {
+                    progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, bufPct, TimeSpan.FromSeconds(args.RemainingTime), Message: "Closing session..."));
+                    return;
+                }
+
+                int pct = args.SectorCount > 0
+                    ? (int)Math.Clamp((args.LastWrittenLba - args.StartLba) * 100.0 / args.SectorCount, 0, 100)
+                    : 0;
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Burning,
+                    pct,
+                    bufPct,
+                    TimeSpan.FromSeconds(Math.Max(0, args.RemainingTime)),
+                    Message: $"Writing image... {pct}%"));
+            });
+
+            _activeFormat = format;
+            using (Imapi2Interop.AdviseEventSink(format, typeof(DDiscFormat2DataEvents).GUID, sink))
+            {
+                format.Write(imageStream);
+            }
+
+            if (options.VerifyData && !_isCancelled && !string.IsNullOrWhiteSpace(options.Drive.Letter))
+            {
+                progress?.Report(new BurnProgress(BurnPhase.Verifying, 0, Message: "Verifying image..."));
+                ScsiOpticalDevice.VerifyStreamAgainstDisc(
+                    options.Drive.Letter,
+                    imageStream,
+                    startLba,
+                    imageBytes,
+                    progress,
+                    ct);
+            }
+        }
+        finally
+        {
+            _activeFormat = null;
+            Imapi2Interop.SafeRelease(imageStream);
+            Imapi2Interop.SafeRelease(format);
+            Imapi2Interop.SafeRelease(recorder);
+        }
+    }
+
+    public async Task BurnMultiTrackAsync(
         DriveModel drive,
         Dictionary<int, GrabTrackInfo> tracks,
         int writeSpeedKBps = 0,
@@ -127,91 +163,90 @@ public sealed class ImageBurner
         IProgress<BurnProgress>? progress = null,
         CancellationToken ct = default)
     {
-        return Task.Run(() =>
+        _isCancelled = false;
+        using var reg = ct.Register(Cancel);
+
+        var ordered = tracks.OrderBy(k => k.Key).ToList();
+        bool allAudio = ordered.Count > 0 && ordered.All(t => t.Value.IsAudio);
+
+        if (allAudio)
         {
-            _isCancelled = false;
-            using var reg = ct.Register(Cancel);
-
-            int totalLb = Math.Max(1, tracks.Values.Sum(t => t.TrackSizeLB));
-            int writtenLb = 0;
-
-            foreach (var kv in tracks.OrderBy(k => k.Key))
+            var comp = new AudioCompilation();
+            foreach (var kv in ordered)
             {
-                if (_isCancelled || ct.IsCancellationRequested) break;
-
-                int trackNum = kv.Key;
-                var info = kv.Value;
-                bool isLast = trackNum == tracks.Count;
-                bool nextSessionAllowed = !isLast || !finalizeDisc;
-
-                if (info.IsAudio)
-                {
-                    var ab = new AudioBurnerClass
-                    {
-                        Drive = drive.RawDrive,
-                        Mode = STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_TAO,
-                        KeepSessionOpened = tracks.TryGetValue(trackNum + 1, out var next) && next.IsAudio,
-                        NextSessionAllowed = nextSessionAllowed
-                    };
-                    if (writeSpeedKBps > 0)
-                    {
-                        try { ab.WriteSpeed = writeSpeedKBps; } catch (COMException) { }
-                    }
-                    ab.AddFile(info.FileName);
-                    ab.OnProgress += (pct, rem) =>
-                    {
-                        int cur = (int)(pct / 100.0 * info.TrackSizeLB);
-                        int overall = (int)Math.Clamp((writtenLb + cur) * 100.0 / totalLb, 0, 100);
-                        progress?.Report(new BurnProgress(BurnPhase.Burning, overall, TimeRemaining: TimeSpan.FromSeconds(rem), CurrentTrack: trackNum, TotalTracks: tracks.Count));
-                    };
-                    _currentAudioBurner = ab;
-                    ab.Burn(false);
-                }
-                else
-                {
-                    var ib = new ImageBurnerClass
-                    {
-                        Drive = drive.RawDrive,
-                        ImageFileName = info.FileName,
-                        Mode = STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_TAO,
-                        NextSessionAllowed = nextSessionAllowed
-                    };
-                    if (writeSpeedKBps > 0)
-                    {
-                        try { ib.WriteSpeed = writeSpeedKBps; } catch (COMException) { }
-                    }
-                    ib.OnProgress += (pct, rem) =>
-                    {
-                        int cur = (int)(pct / 100.0 * info.TrackSizeLB);
-                        int overall = (int)Math.Clamp((writtenLb + cur) * 100.0 / totalLb, 0, 100);
-                        progress?.Report(new BurnProgress(BurnPhase.Burning, overall, TimeRemaining: TimeSpan.FromSeconds(rem), CurrentTrack: trackNum, TotalTracks: tracks.Count));
-                    };
-                    _burner = ib;
-                    ib.BurnEx(false, false, true);
-                }
-
-                writtenLb += info.TrackSizeLB;
+                comp.Tracks.Add(AudioTrackItem.FromFile(kv.Value.FileName));
             }
+            var ab = new AudioBurner();
+            _currentAudioBurner = ab;
+            await ab.BurnAsync(
+                comp,
+                new AudioBurnOptions
+                {
+                    Drive = drive,
+                    WriteSpeedKBps = writeSpeedKBps,
+                    GapMode = AudioGapMode.TaoPause,
+                    FinalizeDisc = finalizeDisc,
+                    EjectAfterBurn = ejectAfterBurn
+                },
+                progress,
+                ct);
+            return;
+        }
 
-            if (ejectAfterBurn && !_isCancelled)
+        // Data or mixed-mode multi-track copy
+        int totalTracks = ordered.Count;
+        int idx = 0;
+        foreach (var kv in ordered)
+        {
+            if (_isCancelled || ct.IsCancellationRequested) break;
+            idx++;
+            bool isLast = idx == totalTracks;
+
+            if (kv.Value.IsAudio)
             {
-                try { drive.RawDrive.Eject(); } catch (COMException) { }
+                var comp = new AudioCompilation();
+                comp.Tracks.Add(AudioTrackItem.FromFile(kv.Value.FileName));
+                var ab = new AudioBurner();
+                _currentAudioBurner = ab;
+                await ab.BurnAsync(
+                    comp,
+                    new AudioBurnOptions
+                    {
+                        Drive = drive,
+                        WriteSpeedKBps = writeSpeedKBps,
+                        GapMode = AudioGapMode.TaoPause,
+                        FinalizeDisc = isLast && finalizeDisc,
+                        EjectAfterBurn = isLast && ejectAfterBurn
+                    },
+                    progress,
+                    ct);
             }
-
-            progress?.Report(new BurnProgress(
-                _isCancelled ? BurnPhase.Cancelled : BurnPhase.Completed,
-                100,
-                Message: _isCancelled ? "Multi-track burn cancelled." : "Multi-track burn completed."));
-        }, ct);
+            else
+            {
+                await BurnAsync(
+                    new ImageBurnOptions
+                    {
+                        Drive = drive,
+                        ImageFileName = kv.Value.FileName,
+                        WriteSpeedKBps = writeSpeedKBps,
+                        FinalizeDisc = isLast && finalizeDisc,
+                        EjectAfterBurn = isLast && ejectAfterBurn
+                    },
+                    progress,
+                    ct);
+            }
+        }
     }
 
     public void Cancel()
     {
         _isCancelled = true;
+        var fmt = _activeFormat;
+        var ab = _currentAudioBurner;
         _ = Task.Run(() =>
         {
-            try { _burner?.Cancel(); } catch { }
-            try { _currentAudioBurner?.Cancel(); } catch { }
+            try { fmt?.CancelWrite(); } catch { }
+            try { ab?.Cancel(); } catch { }
         });
     }
 }

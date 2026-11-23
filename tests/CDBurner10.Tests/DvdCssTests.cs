@@ -1,5 +1,4 @@
 using CDBurner10.Core.Burning;
-using RocketDivision.StarBurnX;
 
 namespace CDBurner10.Tests;
 
@@ -15,7 +14,7 @@ public sealed class DvdCssTests
     public void DiscInfoModel_ReportsCssProtection()
     {
         var info = new DiscInfoModel(
-            STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_ROM,
+            OpticalDiscType.DvdRom,
             "DVD-ROM",
             "TEST",
             0, 0, 0,
@@ -23,7 +22,7 @@ public sealed class DvdCssTests
             0,
             Array.Empty<SessionModel>())
         {
-            ProtectionSystem = STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_CSS
+            ProtectionSystem = DiscProtectionSystem.Css
         };
 
         Assert.True(info.IsCssProtected);
@@ -45,7 +44,7 @@ public sealed class DvdCssTests
     public void DvdCssReader_IsBundledWithTheApplication()
     {
         Assert.True(DvdCssReader.IsAvailable);
-        Assert.Equal("libdvdcss-2-32bit.dll", DvdCssReader.DllName);
+        Assert.Equal("libdvdcss-2.dll", DvdCssReader.DllName);
     }
 
     [Theory]

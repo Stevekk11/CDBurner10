@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Xml;
 using CDBurner10.Core.Utilities;
-using RocketDivision.StarBurnX;
 
 namespace CDBurner10.Core.Burning;
 
@@ -55,7 +54,7 @@ public sealed class DataCompilation
         }
         AddTextElement(optionsEl, "BootableEnabled", DataBurner.BootImage.Enabled ? "1" : "0");
         AddTextElement(optionsEl, "FileSystemType", ((int)DataBurner.FileSystemType).ToString(CultureInfo.InvariantCulture));
-        AddTextElement(optionsEl, "UdfVersion", ((int)GenericDataBurner.MapUdfVersion(DataBurner.UdfVersion)).ToString(CultureInfo.InvariantCulture));
+        AddTextElement(optionsEl, "UdfVersion", GenericDataBurner.MapUdfVersionLegacyInt(DataBurner.UdfVersion).ToString(CultureInfo.InvariantCulture));
         layoutEl.AppendChild(optionsEl);
 
         var volInfoEl = doc.CreateElement("VolumeInfo");
@@ -174,7 +173,7 @@ public sealed class DataCompilation
                         DataBurner.BootImage.LoadSegment = reader.ReadElementContentAsInt();
                         break;
                     case "MediaTypeEmulation":
-                        DataBurner.BootImage.EmulationType = (STARBURN_BOOT_IMAGE_TYPE)reader.ReadElementContentAsInt();
+                        DataBurner.BootImage.EmulationType = (BootEmulationType)reader.ReadElementContentAsInt();
                         break;
                     case "SectorCount":
                         DataBurner.BootImage.SectorsToLoad = reader.ReadElementContentAsInt();
@@ -187,7 +186,7 @@ public sealed class DataCompilation
                         DataBurner.SetFileSystemType((DataFileSystem)reader.ReadElementContentAsInt());
                         break;
                     case "UdfVersion":
-                        DataBurner.UdfVersion = GenericDataBurner.MapStarBurnUdfVersion((STARBURN_UDF_VERSION)reader.ReadElementContentAsInt());
+                        DataBurner.UdfVersion = GenericDataBurner.MapLegacyIntToUdfVersion(reader.ReadElementContentAsInt());
                         break;
                     case "ApplicationID":
                         DataBurner.ApplicationName = reader.ReadElementContentAsString();

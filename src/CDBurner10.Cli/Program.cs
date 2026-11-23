@@ -32,16 +32,6 @@ internal static class Program
             return Commands.DvdToMp4(options);
         }
 
-        if (options.Flags.Contains("-sptd"))
-        {
-            if (!BurningEngine.CheckSptdDriver())
-            {
-                Console.WriteLine("SPTD driver is not installed.");
-                return -1;
-            }
-            BurningEngine.SetTransport(useSptd: true);
-        }
-
         try
         {
             BurningEngine.Initialize();

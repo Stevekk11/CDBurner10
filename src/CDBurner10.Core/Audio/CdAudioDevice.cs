@@ -218,6 +218,38 @@ public static class CdAudioDevice
     }
 
     /// <summary>
+    /// Rips an Audio CD track directly to a standard 44.1 kHz 16-bit stereo WAV file.
+    /// </summary>
+    public static void RipTrackToWav(
+        string driveLetter,
+        int trackNumber1Based,
+        string outputWavPath,
+        IProgress<double>? progress = null,
+        CancellationToken ct = default)
+    {
+        var dir = Path.GetDirectoryName(outputWavPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+        using var wav = new WavWriter(outputWavPath, sampleRate: 44100, channels: 2, bitsPerSample: 16);
+        using var adapter = new WavWriterStream(wav);
+        ReadAudioTrackPcm(driveLetter, trackNumber1Based, adapter, progress, ct);
+    }
+
+    private sealed class WavWriterStream(WavWriter writer) : Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => 0;
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => writer.WriteBytes(buffer, offset, count);
+    }
+
+    /// <summary>
     /// Reads an Audio CD track's raw 44.1 kHz 16-bit stereo PCM data directly via IOCTL_CDROM_RAW_READ.
     /// </summary>
     public static void ReadAudioTrackPcm(

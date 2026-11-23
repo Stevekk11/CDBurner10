@@ -216,7 +216,6 @@ public sealed class SettingsService
         settings.LastUsedProjectType = GetStr("General", "LastUsedProjectType", settings.LastUsedProjectType);
         settings.LoggingEnabled = GetBool("General", "LoggingEnabled", settings.LoggingEnabled);
         settings.LoggingLevel = GetInt("General", "LoggingLevel", settings.LoggingLevel);
-        settings.UseSPTD = GetBool("General", "UseSPTD", settings.UseSPTD);
         settings.UseCustomTempFolder = GetBool("General", "UseCustomTempFolder", settings.UseCustomTempFolder);
         settings.CustomTempFolder = GetStr("General", "CustomTempFolder", settings.CustomTempFolder);
         settings.PreventDefaultDragDrop = GetBool("General", "PreventDefaultDragDrop", settings.PreventDefaultDragDrop);

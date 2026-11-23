@@ -1,101 +1,27 @@
 using System.Runtime.InteropServices;
-using CDBurner10.Core.Settings;
-using CDBurner10.Core.Utilities;
-using RocketDivision.StarBurnX;
+using CDBurner10.Core.Native;
 
 namespace CDBurner10.Core.Burning;
 
+/// <summary>
+/// Manages optical drive discovery and shared disc utilities via Windows IMAPI2 and SPTI.
+/// Zero closed-source dependencies.
+/// </summary>
 public static class BurningEngine
 {
-    private const string StarBurnRegistrationKey =
-        "C0YXRHpEAUhFImo+bjN3D0g1dTl2LmsHTB10MnkHXwVZBEg7YwNMAVcLQTN0NnIvCkMTQmApRRlBPEAOWdGNy5Tw/LGQxqjrpuC26ZjZvOnbpvecpJZc2CTtEu628QnBzKka2yPQEZSr4QLXpPMM3MeowoIe9ZzW7uH0gFzelYilxTmsr43TjZKlRt6W8fX1ob69gy2/DLwwrLmUZcpG4WqAduen0yWOG7G2memSm6Jw9+uw7N9eiKW3FMecLTF+NDbZJUVOuRGpSpdDVQSBP/du9hw3SCMEEVWsU9oEc0wvPypvgwU+dPcGXEHIO/cyoHJVRKhWCQNFPnlY+1R8CCcqkhe+Iqh15xC6CLsqn3WPTglM2lqDJS4D4VfLBEIQvTCuAo8kKRlmPDpnKRt4a25GxgqpDKMF1ms8XUOt1bDWvtOd8owt1KTdlM5/6lmNALR5gC/4Vskp9TPNUKoA8kvUOt2i4uaD18dr5facvZ3Zh+X+R+w1onjBl457mP3zsPzV5Fn7y5BY7sqhKZVX8vzAPfWN9UjNcMADl6HMNavhgybZtP5ErGuz6JvE/ifNk656ytufJ9Ij6GjXzH7MRCc62i/tTgtM6yfHMgIJLyR5AA5iDUVfZAwfm2rHXOQmFmyLWV5HSAULKkMbzQkudSpsMmq9BOBALyY2SZ4/XgmSaixVwxF1ITV6t04hf5sV6D4ZCsZroTHGXEF5KkbqQzQEHH+XOHpuXXv6E6gFQUG/ZsdJxDgNfGRYbja3yTqbYJqNv7XSkcwu5GPWPqggrBrvJ6MRspbgfOgk4DHvr5fytlitOK3lj5KDpLBezfHTUsHzs8is0bkZ+xqGEpfpygOEtOxalebNtZKt9+LUfaXtgeOjxdDIrcfK+KukzLap/7oatRj5CvEKorHHduW23xzGaYIi2nKuyJ5w1nQT71ZRfhpuS1EBGTR0u2BVRxMvoiKFN/p6IXp/acV+nFk8ddxU7ysQa7k07XlFMxk1724TNulqKTTeGAd90m23Ncd2TH3sYyA9YkhXO2BsRiJrcClgPWUpYCBhKWomfCVSGFYhZnAXd0oyS6t4CVNOaJpe6DmrV7Y1XVYIXm5Hs4YX1DKr059Pr5iXRvUMhxW0cZPS+fPQyfIajsbwP/mp7xCwf8di5YWpBPocm+eK3pK44Cud3IugonG7ybJc+0/6aI6c0NrWktEopqH5y+Kzmzaw/bMk/hPbj71l8iThfrDenHSjzLZz63Tu+KjNrjCezJj8s8PKv5vEr2T+7tazG5U2wluYa2FbmioUXw0BPz8KAmoZZ3c+escp+RhqGWhqG3qZLXY2uFwNZWcSQntMZTAgW0eLduxfoi0PZUJXdkYfYPS58rvgIB4fA04FTA==";
-
     private static readonly object SyncLock = new();
-    private static StarBurnX? _starBurn;
-    private static STARBURN_TRANSPORT _deviceDriver = STARBURN_TRANSPORT.STARBURN_TRANSPORT_SPTI;
+    private static bool _isInitialized;
     private static List<DriveModel> _cachedDrives = [];
 
-    public static STARBURN_TRANSPORT DeviceDriver
-    {
-        get => _deviceDriver;
-        set => _deviceDriver = value;
-    }
-
-    public static void SetTransport(bool useSptd)
-    {
-        _deviceDriver = useSptd
-            ? STARBURN_TRANSPORT.STARBURN_TRANSPORT_SPTD
-            : STARBURN_TRANSPORT.STARBURN_TRANSPORT_SPTI;
-    }
-
     public static string LastLogPath { get; private set; } = string.Empty;
-    public static bool IsInitialized => _starBurn is not null;
-
-    public static StarBurnX StarBurnEngine
-    {
-        get
-        {
-            if (_starBurn is null)
-            {
-                Initialize();
-            }
-            return _starBurn!;
-        }
-    }
-
-    public static bool CheckSptdDriver()
-    {
-        try
-        {
-            var sb = new StarBurnXClass();
-            return sb.CheckSPTDDriver(out _, out _);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    public static bool IsInitialized => _isInitialized;
 
     public static void Initialize(bool? enableLogging = null, int? logLevel = null, string? logDirectory = null)
     {
         lock (SyncLock)
         {
-            if (_starBurn is not null) return;
-
-            var settings = SettingsService.Default.Current;
-            bool logging = enableLogging ?? settings.LoggingEnabled;
-            int level = logLevel ?? settings.LoggingLevel;
-
-            if (settings.UseSPTD && _deviceDriver == STARBURN_TRANSPORT.STARBURN_TRANSPORT_SPTI)
-            {
-                if (CheckSptdDriver())
-                {
-                    _deviceDriver = STARBURN_TRANSPORT.STARBURN_TRANSPORT_SPTD;
-                }
-            }
-
-            var sb = new StarBurnXClass();
-            if (logging)
-            {
-                string dir = logDirectory ?? SettingsService.Default.SettingsDirectory;
-                Directory.CreateDirectory(dir);
-                string logFile = Path.Combine(dir, "StarBurn.log");
-                PathHelper.TryDeleteFile(logFile);
-                LastLogPath = logFile;
-
-                sb.DebugFacility = STARBURN_DEBUG_FACILITIES.STARBURN_DEBUG_FACILITY_FILE;
-                sb.DebugLevel = level switch
-                {
-                    2 => STARBURN_DEBUG_LEVEL.STARBURN_DEBUG_HIGH_LEVEL,
-                    0 => STARBURN_DEBUG_LEVEL.STARBURN_DEBUG_LOW_LEVEL,
-                    _ => STARBURN_DEBUG_LEVEL.STARBURN_DEBUG_MEDIUM_LEVEL
-                };
-                sb.DebugFileName = logFile;
-            }
-
-            sb.InitializeEx(StarBurnRegistrationKey, _deviceDriver);
-            sb.Refresh();
-            _starBurn = sb;
+            if (_isInitialized) return;
+            _isInitialized = true;
             RebuildDriveCache();
         }
     }
@@ -104,20 +30,8 @@ public static class BurningEngine
     {
         lock (SyncLock)
         {
-            if (_starBurn is null) return;
-            try
-            {
-                _starBurn.Uninitialize();
-            }
-            catch
-            {
-                // Ignore COM cleanup errors on exit
-            }
-            finally
-            {
-                _starBurn = null;
-                _cachedDrives = [];
-            }
+            _isInitialized = false;
+            _cachedDrives = [];
         }
     }
 
@@ -127,7 +41,7 @@ public static class BurningEngine
         {
             lock (SyncLock)
             {
-                if (_starBurn is null) Initialize();
+                if (!_isInitialized) Initialize();
                 return _cachedDrives;
             }
         }
@@ -137,20 +51,12 @@ public static class BurningEngine
     {
         lock (SyncLock)
         {
-            if (_starBurn is null)
+            if (!_isInitialized)
             {
                 Initialize();
                 return _cachedDrives;
             }
 
-            try
-            {
-                _starBurn.Refresh();
-            }
-            catch (COMException)
-            {
-                // Keep empty list gracefully on 0 drives / bus error
-            }
             RebuildDriveCache();
             return _cachedDrives;
         }
@@ -159,21 +65,24 @@ public static class BurningEngine
     private static void RebuildDriveCache()
     {
         var list = new List<DriveModel>();
-        if (_starBurn is null)
-        {
-            _cachedDrives = list;
-            return;
-        }
-
+        IDiscMaster2? master = null;
         try
         {
-            int count = _starBurn.Drives.Count;
+            master = Imapi2Interop.CreateDiscMaster2();
+            if (!master.IsSupportedEnvironment)
+            {
+                _cachedDrives = list;
+                return;
+            }
+
+            int count = master.Count;
             for (int i = 0; i < count; i++)
             {
                 try
                 {
-                    var drive = _starBurn.Drives[i];
-                    list.Add(new DriveModel(drive, i));
+                    string uniqueId = master[i];
+                    if (string.IsNullOrWhiteSpace(uniqueId)) continue;
+                    list.Add(new DriveModel(uniqueId, i));
                 }
                 catch (COMException)
                 {
@@ -183,7 +92,15 @@ public static class BurningEngine
         }
         catch (COMException)
         {
-            // 0 drives or SPTI enumeration unavailable
+            // 0 optical drives or IMAPI2 service unavailable
+        }
+        catch (Exception)
+        {
+            // Keep graceful empty list on non-optical environments
+        }
+        finally
+        {
+            Imapi2Interop.SafeRelease(master);
         }
 
         _cachedDrives = list;
@@ -221,58 +138,79 @@ public static class BurningEngine
         return null;
     }
 
-    public static Drive? GetStarBurnDriveByLetter(string? letter) =>
-        GetDriveByLetter(letter)?.RawDrive;
-
     public static bool DeviceLettersEqual(string? a, string? b)
     {
         if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
         return char.ToUpperInvariant(a.Trim()[0]) == char.ToUpperInvariant(b.Trim()[0]);
     }
 
-    public static void TryLock(Drive? drive)
+    public static void TryLock(DriveModel? drive)
     {
-        if (drive is null) return;
-        try { drive.LockTray(); }
-        catch (COMException) { }
+        if (drive is null || string.IsNullOrWhiteSpace(drive.Letter)) return;
+        ScsiOpticalDevice.SetTrayLock(drive.Letter, true);
     }
 
-    public static void TryUnlock(Drive? drive)
+    public static void TryUnlock(DriveModel? drive)
     {
-        if (drive is null) return;
-        try { drive.UnlockTray(); }
-        catch (COMException) { }
+        if (drive is null || string.IsNullOrWhiteSpace(drive.Letter)) return;
+        ScsiOpticalDevice.SetTrayLock(drive.Letter, false);
     }
 
-    public static bool IsDiscErasable(STARBURN_DISC_TYPE mediaType) =>
-        ((int)mediaType & 0xD8C2D48) != 0;
+    public static bool IsDiscErasable(OpticalDiscType mediaType) =>
+        (mediaType & (OpticalDiscType.CdRw | OpticalDiscType.DvdRw | OpticalDiscType.DvdPlusRw |
+                      OpticalDiscType.DvdRam | OpticalDiscType.BdRe | OpticalDiscType.HdDvdRw)) != 0;
 
-    public static bool IsCdDisc(STARBURN_DISC_TYPE mediaType) =>
-        ((int)mediaType & 0x7E) > 0;
+    public static bool IsCdDisc(OpticalDiscType mediaType) =>
+        (mediaType & (OpticalDiscType.CdRom | OpticalDiscType.CdR | OpticalDiscType.CdRw)) != 0;
 
-    public static string GetDiscDescription(STARBURN_DISC_TYPE mediaType) => mediaType switch
+    public static OpticalDiscType MapImapiMediaType(int imapiPhysicalType) => imapiPhysicalType switch
     {
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_R or STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_R_DD => "CD-R",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_RW or STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_RW_DD => "CD-RW",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_ROM or STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_ROM_DD => "CD-ROM",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_R => "DVD-R",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_RW or STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_RW_RO or STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_RW_SR => "DVD-RW",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_PLUS_R => "DVD+R",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_PLUS_R_DL => "DVD+R Dual Layer",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_R_DL => "DVD-R Dual Layer",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_PLUS_RW => "DVD+RW",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_RAM => "DVD-RAM",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_ROM => "DVD-ROM",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD_R => "BD-R (Blu-Ray)",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD_R_DL => "BD-R (Blu-Ray) Dual Layer",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD_RE => "BD-RE (Blu-Ray)",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD => "BD-ROM (Blu-Ray)",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_HDDVD_R => "HD-DVD-R",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_HDDVD_R_DL => "HD-DVD-R Dual Layer",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_HDDVD_RW => "HD-DVD-RW",
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_HDDVD_ROM => "HD-DVD-ROM",
+        Imapi2Interop.MediaTypeCdRom => OpticalDiscType.CdRom,
+        Imapi2Interop.MediaTypeCdR => OpticalDiscType.CdR,
+        Imapi2Interop.MediaTypeCdRw => OpticalDiscType.CdRw,
+        Imapi2Interop.MediaTypeDvdRom => OpticalDiscType.DvdRom,
+        Imapi2Interop.MediaTypeDvdRam => OpticalDiscType.DvdRam,
+        Imapi2Interop.MediaTypeDvdPlusR => OpticalDiscType.DvdPlusR,
+        Imapi2Interop.MediaTypeDvdPlusRw or Imapi2Interop.MediaTypeDvdPlusRwDualLayer => OpticalDiscType.DvdPlusRw,
+        Imapi2Interop.MediaTypeDvdPlusRDualLayer => OpticalDiscType.DvdPlusRDl,
+        Imapi2Interop.MediaTypeDvdR => OpticalDiscType.DvdR,
+        Imapi2Interop.MediaTypeDvdRw => OpticalDiscType.DvdRw,
+        Imapi2Interop.MediaTypeDvdRDualLayer => OpticalDiscType.DvdRDl,
+        Imapi2Interop.MediaTypeHdDvdRom => OpticalDiscType.HdDvdRom,
+        Imapi2Interop.MediaTypeHdDvdR => OpticalDiscType.HdDvdR,
+        Imapi2Interop.MediaTypeHdDvdRam => OpticalDiscType.HdDvdRw,
+        Imapi2Interop.MediaTypeBdRom => OpticalDiscType.BdRom,
+        Imapi2Interop.MediaTypeBdR => OpticalDiscType.BdR,
+        Imapi2Interop.MediaTypeBdRe => OpticalDiscType.BdRe,
+        _ => OpticalDiscType.None
+    };
+
+    public static string GetDiscDescription(OpticalDiscType mediaType) => mediaType switch
+    {
+        OpticalDiscType.CdR => "CD-R",
+        OpticalDiscType.CdRw => "CD-RW",
+        OpticalDiscType.CdRom => "CD-ROM",
+        OpticalDiscType.DvdR => "DVD-R",
+        OpticalDiscType.DvdRw => "DVD-RW",
+        OpticalDiscType.DvdPlusR => "DVD+R",
+        OpticalDiscType.DvdPlusRDl => "DVD+R Dual Layer",
+        OpticalDiscType.DvdRDl => "DVD-R Dual Layer",
+        OpticalDiscType.DvdPlusRw => "DVD+RW",
+        OpticalDiscType.DvdRam => "DVD-RAM",
+        OpticalDiscType.DvdRom => "DVD-ROM",
+        OpticalDiscType.BdR => "BD-R (Blu-Ray)",
+        OpticalDiscType.BdRDl => "BD-R (Blu-Ray) Dual Layer",
+        OpticalDiscType.BdRe => "BD-RE (Blu-Ray)",
+        OpticalDiscType.BdRom => "BD-ROM (Blu-Ray)",
+        OpticalDiscType.HdDvdR => "HD-DVD-R",
+        OpticalDiscType.HdDvdRDl => "HD-DVD-R Dual Layer",
+        OpticalDiscType.HdDvdRw => "HD-DVD-RW",
+        OpticalDiscType.HdDvdRom => "HD-DVD-ROM",
         _ => "No Disc"
     };
+
+    public static TimeSpan GetAudioDuration(int logicalBlocks) =>
+        TimeSpan.FromSeconds(logicalBlocks / 75.0);
 
     public static IReadOnlyDictionary<string, bool> GetRegionInfo(int regionMask) =>
         new Dictionary<string, bool>

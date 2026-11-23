@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using RocketDivision.StarBurnX;
+using CDBurner10.Core.Native;
 
 namespace CDBurner10.Core.Burning;
 
@@ -28,7 +28,7 @@ public sealed record SessionModel(
 }
 
 public sealed record DiscInfoModel(
-    STARBURN_DISC_TYPE DiscType,
+    OpticalDiscType DiscType,
     string DiscTypeDescription,
     string DiscLabel,
     long TotalSizeBytes,
@@ -42,19 +42,14 @@ public sealed record DiscInfoModel(
     int DvdRegionMask,
     IReadOnlyList<SessionModel> Sessions)
 {
-    /// <summary>
-    /// Copy protection reported by the drive. StarBurn decrypts CSS-protected
-    /// DVD-Video content itself while grabbing, so no external library is needed.
-    /// </summary>
-    public STARBURN_DISC_PROTECTION_SYSTEM ProtectionSystem { get; init; }
+    public DiscProtectionSystem ProtectionSystem { get; init; }
 
-    public bool IsCssProtected =>
-        ProtectionSystem == STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_CSS;
+    public bool IsCssProtected => ProtectionSystem == DiscProtectionSystem.Css;
 
     public IReadOnlyDictionary<string, bool> RegionInfo => BurningEngine.GetRegionInfo(DvdRegionMask);
 
     public static DiscInfoModel Empty => new(
-        STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_NONE,
+        OpticalDiscType.None,
         "No Disc",
         string.Empty,
         0, 0, 0,
@@ -62,92 +57,13 @@ public sealed record DiscInfoModel(
         0,
         Array.Empty<SessionModel>())
     {
-        ProtectionSystem = STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_NONE
+        ProtectionSystem = DiscProtectionSystem.None
     };
-
-    public static DiscInfoModel FromStarBurn(DiscInfo discInfo)
-    {
-        try
-        {
-            var discType = (STARBURN_DISC_TYPE)discInfo.DiscType;
-            bool hasDisc = discInfo.DiscType != 0;
-            var sessions = new List<SessionModel>();
-
-            if (hasDisc)
-            {
-                try
-                {
-                    int sNum = 1;
-                    foreach (Session session in discInfo.Sessions)
-                    {
-                        var tracks = new List<TrackModel>();
-                        int tNum = 1;
-                        foreach (Track track in session.Tracks)
-                        {
-                            long sizeBytes = (long)track.Size * track.LogicalBlockSize;
-                            var duration = track.Audio
-                                ? StarBurnExtensions.GetAudioDuration(track.Size)
-                                : TimeSpan.Zero;
-                            tracks.Add(new TrackModel(tNum++, track.Audio, track.Size, track.LogicalBlockSize, sizeBytes, duration));
-                        }
-                        sessions.Add(new SessionModel(sNum++, tracks));
-                    }
-                }
-                catch (COMException)
-                {
-                    // Blank disc may have 0 readable sessions
-                }
-            }
-
-            long totalBytes = (long)discInfo.TotalSize * 1024L;
-            long freeBytes = (long)discInfo.AvailableSize * 1024L;
-            long usedBytes = (long)discInfo.UsedSize * 1024L;
-            if (usedBytes == 0 && sessions.Count > 0)
-            {
-                usedBytes = sessions.Sum(s => s.TotalSizeBytes);
-            }
-
-            bool isBlank = discInfo.Status == STARBURN_DISC_STATUS.STARBURN_DISC_STATUS_EMPTY;
-            bool nextSessionAllowed = discInfo.Status != STARBURN_DISC_STATUS.STARBURN_DISC_STATUS_COMPLETE;
-
-            var protection = STARBURN_DISC_PROTECTION_SYSTEM.STARBURN_DVD_PROTECTION_NONE;
-            try
-            {
-                protection = discInfo.ProtectionSystem;
-            }
-            catch (COMException)
-            {
-                // Some drives/media do not report a protection system.
-            }
-
-            return new DiscInfoModel(
-                discType,
-                BurningEngine.GetDiscDescription(discType),
-                discInfo.DiscLabel ?? string.Empty,
-                totalBytes,
-                usedBytes,
-                freeBytes,
-                isBlank,
-                BurningEngine.IsDiscErasable(discType),
-                BurningEngine.IsCdDisc(discType),
-                nextSessionAllowed,
-                hasDisc,
-                discInfo.DVDRegionMask,
-                sessions)
-            {
-                ProtectionSystem = protection
-            };
-        }
-        catch (COMException)
-        {
-            return Empty;
-        }
-    }
 }
 
 public sealed class DriveModel
 {
-    public Drive RawDrive { get; }
+    public string UniqueId { get; }
     public int Index { get; }
     public string Letter { get; }
     public string Vendor { get; }
@@ -155,103 +71,292 @@ public sealed class DriveModel
     public string Revision { get; }
     public int MaxWriteSpeed { get; }
     public int MaxReadSpeed { get; }
-    public int SupportedMediaRead { get; }
-    public int SupportedMediaWrite { get; }
+    public OpticalDiscType SupportedMediaRead { get; }
+    public OpticalDiscType SupportedMediaWrite { get; }
     public bool SupportTestWrite { get; }
     public bool SupportBufferUnderrunProtection { get; }
-    public bool IsWriter => SupportedMediaWrite != 0;
+    public bool IsWriter => SupportedMediaWrite != OpticalDiscType.None;
+    public int State => (!string.IsNullOrWhiteSpace(Letter) && ScsiOpticalDevice.IsUnitReady(Letter)) ? 0 : 1;
     public string DisplayName => $"{Letter}: {Vendor} {Product}".Trim();
 
-    public IReadOnlyList<DriveSpeedModel> SupportedWriteSpeeds { get; private set; } = [];
-    public IReadOnlyList<DriveSpeedModel> SupportedReadSpeeds { get; private set; } = [];
+    public IReadOnlyList<DriveSpeedModel> SupportedWriteSpeeds { get; private set; } = [new(0, 0)];
+    public IReadOnlyList<DriveSpeedModel> SupportedReadSpeeds { get; private set; } = [new(0, 0)];
 
-    public DriveModel(Drive drive, int index)
+    public DriveModel(string uniqueId, int index)
     {
-        RawDrive = drive;
+        UniqueId = uniqueId;
         Index = index;
 
-        var info = drive.DriveInfo;
-        Letter = (info.Letter ?? string.Empty).Trim().TrimEnd(':', '\\');
-        Vendor = (info.Vendor ?? string.Empty).Trim();
-        Product = (info.Product ?? string.Empty).Trim();
-        Revision = (info.Revision ?? string.Empty).Trim();
-        MaxWriteSpeed = info.MaxWriteSpeed;
-        MaxReadSpeed = info.MaxReadSpeed;
-        SupportedMediaRead = info.SupportedMediaRead;
-        SupportedMediaWrite = info.SupportedMediaWrite;
-        SupportTestWrite = info.SupportTestWrite;
-        SupportBufferUnderrunProtection = info.SupportBufferUnderrunProtection;
+        IDiscRecorder2? recorder = null;
+        try
+        {
+            recorder = Imapi2Interop.CreateDiscRecorder2();
+            recorder.InitializeDiscRecorder(uniqueId);
+
+            Vendor = (recorder.VendorId ?? string.Empty).Trim();
+            Product = (recorder.ProductId ?? string.Empty).Trim();
+            Revision = (recorder.ProductRevision ?? string.Empty).Trim();
+
+            string letter = string.Empty;
+            try
+            {
+                var paths = recorder.VolumePathNames;
+                if (paths is { Length: > 0 } && paths[0] is string firstPath && !string.IsNullOrWhiteSpace(firstPath))
+                {
+                    letter = firstPath.Trim().TrimEnd(':', '\\');
+                }
+            }
+            catch (COMException) { }
+            Letter = letter;
+        }
+        finally
+        {
+            Imapi2Interop.SafeRelease(recorder);
+        }
+
+        if (!string.IsNullOrWhiteSpace(Letter))
+        {
+            var caps = ScsiOpticalDevice.QueryDriveCapabilities(Letter);
+            MaxReadSpeed = caps.MaxReadSpeedKBps;
+            MaxWriteSpeed = caps.MaxWriteSpeedKBps;
+            SupportTestWrite = caps.SupportsTestWrite;
+            SupportBufferUnderrunProtection = caps.SupportsBufferUnderrunProtection;
+            SupportedMediaRead = caps.SupportedMediaRead;
+            SupportedMediaWrite = caps.SupportedMediaWrite;
+        }
 
         RefreshSpeeds();
     }
 
-    public int State
+    internal IDiscRecorder2 OpenRecorder()
     {
-        get
-        {
-            try { return (int)RawDrive.State; }
-            catch (COMException) { return -1; }
-        }
+        var recorder = Imapi2Interop.CreateDiscRecorder2();
+        recorder.InitializeDiscRecorder(UniqueId);
+        return recorder;
     }
 
     public void RefreshSpeeds()
     {
         var writeSpeeds = new List<DriveSpeedModel> { new(0, 0) };
-        try
-        {
-            foreach (DriveSpeed sp in RawDrive.DriveInfo.SupportedWriteSpeeds)
-            {
-                writeSpeeds.Add(new DriveSpeedModel(sp.Speed, sp.SpeedRatio));
-            }
-        }
-        catch (COMException) { }
-        SupportedWriteSpeeds = writeSpeeds;
-
         var readSpeeds = new List<DriveSpeedModel> { new(0, 0) };
+
+        IDiscRecorder2? recorder = null;
+        IDiscFormat2Data? format = null;
         try
         {
-            foreach (DriveSpeed sp in RawDrive.DriveInfo.SupportedReadSpeeds)
+            recorder = OpenRecorder();
+            format = Imapi2Interop.CreateDiscFormat2Data();
+            if (format.IsRecorderSupported(recorder) && format.IsCurrentMediaSupported(recorder))
             {
-                readSpeeds.Add(new DriveSpeedModel(sp.Speed, sp.SpeedRatio));
+                format.put_Recorder(recorder);
+                int mediaType = format.CurrentPhysicalMediaType;
+                double base1xKBps = GetBase1xKBps(BurningEngine.MapImapiMediaType(mediaType));
+
+                var rawSpeeds = format.SupportedWriteSpeeds;
+                if (rawSpeeds is not null)
+                {
+                    foreach (var obj in rawSpeeds)
+                    {
+                        if (obj is int sectorsPerSec && sectorsPerSec > 0)
+                        {
+                            int kbps = sectorsPerSec * 2; // 2048 bytes/sector = 2 KB/sector
+                            double ratio = Math.Round(kbps / base1xKBps, 1);
+                            writeSpeeds.Add(new DriveSpeedModel(kbps, ratio));
+                        }
+                    }
+                }
             }
         }
         catch (COMException) { }
+        finally
+        {
+            Imapi2Interop.SafeRelease(format);
+            Imapi2Interop.SafeRelease(recorder);
+        }
+
+        if (MaxReadSpeed > 0)
+        {
+            readSpeeds.Add(new DriveSpeedModel(MaxReadSpeed, Math.Round(MaxReadSpeed / 176.4, 1)));
+        }
+
+        SupportedWriteSpeeds = writeSpeeds;
         SupportedReadSpeeds = readSpeeds;
     }
 
     public DiscInfoModel GetDiscInfo(bool refresh = true)
     {
-        try
+        if (string.IsNullOrWhiteSpace(Letter))
+            return DiscInfoModel.Empty;
+
+        if (refresh)
         {
-            if (refresh)
-            {
-                RawDrive.DiscInfo.Refresh();
-                RefreshSpeeds();
-            }
-            return DiscInfoModel.FromStarBurn(RawDrive.DiscInfo);
+            RefreshSpeeds();
         }
-        catch (COMException)
+
+        // First query SCSI profile & layout (works for ALL discs: Audio CD, DVD-ROM, blank, multi-session, unfinalized)
+        var discType = ScsiOpticalDevice.QueryCurrentMediaProfile(Letter);
+        bool unitReady = ScsiOpticalDevice.IsUnitReady(Letter);
+        if (!unitReady && discType == OpticalDiscType.None)
         {
             return DiscInfoModel.Empty;
         }
+
+        var layout = ScsiOpticalDevice.QueryDiscLayout(Letter);
+        long totalBytes = layout.TotalBytes;
+        long usedBytes = layout.UsedBytes;
+        long freeBytes = layout.FreeBytes;
+        bool isBlank = layout.IsBlank;
+        bool isFinalized = layout.IsFinalized;
+
+        // Refine with IMAPI2 IDiscFormat2Data when writable media is inserted
+        IDiscRecorder2? recorder = null;
+        IDiscFormat2Data? format = null;
+        try
+        {
+            recorder = OpenRecorder();
+            format = Imapi2Interop.CreateDiscFormat2Data();
+            if (format.IsCurrentMediaSupported(recorder))
+            {
+                format.put_Recorder(recorder);
+                var imapiType = BurningEngine.MapImapiMediaType(format.CurrentPhysicalMediaType);
+                if (imapiType != OpticalDiscType.None) discType = imapiType;
+
+                long imapiTotal = (long)format.TotalSectorsOnMedia * ScsiOpticalDevice.DataSectorSize;
+                long imapiFree = (long)format.FreeSectorsOnMedia * ScsiOpticalDevice.DataSectorSize;
+                if (imapiTotal > 0)
+                {
+                    totalBytes = imapiTotal;
+                    freeBytes = Math.Max(0, imapiFree);
+                    if (usedBytes == 0 && !format.MediaPhysicallyBlank)
+                    {
+                        usedBytes = Math.Max(0, totalBytes - freeBytes);
+                    }
+                }
+
+                if (format.MediaPhysicallyBlank || format.MediaHeuristicallyBlank)
+                {
+                    isBlank = true;
+                }
+
+                int status = format.CurrentMediaStatus;
+                if ((status & Imapi2Interop.MediaStateFinalized) != 0)
+                {
+                    isFinalized = true;
+                }
+                else if ((status & Imapi2Interop.MediaStateAppendable) != 0 || (status & Imapi2Interop.MediaStateBlank) != 0)
+                {
+                    isFinalized = false;
+                }
+            }
+        }
+        catch (COMException) { }
+        finally
+        {
+            Imapi2Interop.SafeRelease(format);
+            Imapi2Interop.SafeRelease(recorder);
+        }
+
+        if (discType == OpticalDiscType.None && layout.Sessions.Count == 0 && totalBytes == 0)
+        {
+            return DiscInfoModel.Empty;
+        }
+
+        // Read Windows volume label if mounted
+        string label = string.Empty;
+        try
+        {
+            var di = new DriveInfo($"{Letter}:\\");
+            if (di.IsReady)
+            {
+                label = di.VolumeLabel ?? string.Empty;
+            }
+        }
+        catch { }
+
+        // Query DVD CSS copy protection & region mask
+        var (protection, regionMask) = BurningEngine.IsCdDisc(discType)
+            ? (DiscProtectionSystem.None, 0)
+            : ScsiOpticalDevice.QueryDvdCopyrightInfo(Letter);
+
+        bool isErasable = layout.IsErasable || BurningEngine.IsDiscErasable(discType);
+        bool nextSessionAllowed = !isFinalized;
+
+        return new DiscInfoModel(
+            discType,
+            BurningEngine.GetDiscDescription(discType),
+            label,
+            totalBytes,
+            usedBytes,
+            freeBytes,
+            isBlank,
+            isErasable,
+            BurningEngine.IsCdDisc(discType),
+            nextSessionAllowed,
+            HasDisc: true,
+            regionMask,
+            layout.Sessions)
+        {
+            ProtectionSystem = protection
+        };
     }
 
     public Task<DiscInfoModel> RefreshDiscInfoAsync() => Task.Run(() => GetDiscInfo(refresh: true));
 
-    public void Eject() => RawDrive.Eject();
-    public void Load() => RawDrive.Load();
+    public void Eject()
+    {
+        IDiscRecorder2? recorder = null;
+        try
+        {
+            recorder = OpenRecorder();
+            recorder.EjectMedia();
+        }
+        catch
+        {
+            if (!string.IsNullOrWhiteSpace(Letter))
+                ScsiOpticalDevice.EjectTray(Letter);
+        }
+        finally
+        {
+            Imapi2Interop.SafeRelease(recorder);
+        }
+    }
+
+    public void Load()
+    {
+        IDiscRecorder2? recorder = null;
+        try
+        {
+            recorder = OpenRecorder();
+            recorder.CloseTray();
+        }
+        catch
+        {
+            if (!string.IsNullOrWhiteSpace(Letter))
+                ScsiOpticalDevice.LoadTray(Letter);
+        }
+        finally
+        {
+            Imapi2Interop.SafeRelease(recorder);
+        }
+    }
 
     public Task EjectAsync() => Task.Run(() =>
     {
-        try { RawDrive.Eject(); }
-        catch (COMException) { }
+        try { Eject(); } catch { }
     });
 
     public Task LoadAsync() => Task.Run(() =>
     {
-        try { RawDrive.Load(); }
-        catch (COMException) { }
+        try { Load(); } catch { }
     });
+
+    private static double GetBase1xKBps(OpticalDiscType mediaType)
+    {
+        if (BurningEngine.IsCdDisc(mediaType)) return 150.0;
+        if ((mediaType & (OpticalDiscType.BdRom | OpticalDiscType.BdR | OpticalDiscType.BdRDl | OpticalDiscType.BdRe)) != 0)
+            return 4500.0;
+        return 1385.0; // DVD 1x
+    }
 
     public override string ToString() => DisplayName;
 }

@@ -100,7 +100,7 @@ public sealed partial class BurnIsoPage : Page
 
     private async void BrowseIsoButton_Click(object sender, RoutedEventArgs e)
     {
-        var path = await FilePickerHelper.PickSingleFileAsync([".iso", ".mds", ".bin", ".nrg", ".b5i"]);
+        var path = await FilePickerHelper.PickSingleFileAsync([".iso", ".bin", ".nrg", ".b5i"]);
         if (!string.IsNullOrWhiteSpace(path))
         {
             IsoPathBox.Text = path;
@@ -150,7 +150,7 @@ public sealed partial class BurnIsoPage : Page
         var path = IsoPathBox.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
-            ShowStatus(InfoBarSeverity.Error, "Image File Missing", "Please select an existing .iso or .mds image file.");
+            ShowStatus(InfoBarSeverity.Error, "Image File Missing", "Please select an existing .iso image file.");
             return;
         }
 
@@ -174,7 +174,6 @@ public sealed partial class BurnIsoPage : Page
             ImageFileName = path,
             WriteSpeedKBps = (SpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0,
             Mode = GetSelectedWriteMode(),
-            IsMdsImage = path.EndsWith(".mds", StringComparison.OrdinalIgnoreCase),
             IsXaCdRom = Mode2XaCheckBox.IsChecked == true,
             Padding = PaddingCheckBox.IsChecked == true,
             FinalizeDisc = FinalizeCheckBox.IsChecked == true,

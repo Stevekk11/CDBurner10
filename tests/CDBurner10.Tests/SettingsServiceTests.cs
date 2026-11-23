@@ -86,7 +86,6 @@ public sealed class SettingsServiceTests
             [General]
             AppLanguage=de-DE
             ExitToNotify=1
-            UseSPTD=true
             LoggingEnabled=1
             LoggingLevel=3
 
@@ -118,7 +117,6 @@ public sealed class SettingsServiceTests
 
         Assert.Equal("de-DE", imported.AppLanguage);
         Assert.True(imported.ExitToNotify);
-        Assert.True(imported.UseSPTD);
         Assert.True(imported.LoggingEnabled);
         Assert.Equal(3, imported.LoggingLevel);
 

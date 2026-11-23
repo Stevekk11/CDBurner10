@@ -30,8 +30,8 @@
 
     <ui:WixUI Id="WixUI_FeatureTree" />
 
-    <!-- Directory structure -->
-    <StandardDirectory Id="ProgramFilesFolder">
+    <!-- Directory structure (64-bit) -->
+    <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="CDBurner10" />
     </StandardDirectory>
 
@@ -145,7 +145,7 @@
     <!-- Installable Features -->
     <Feature Id="CoreApplication"
              Title="CDBurner10 Application"
-             Description="WinUI 3 desktop app, cdbxpcmd CLI, StarBurnX burning engine, NAudio/TagLibSharp audio, and DVD tools."
+             Description="WinUI 3 64-bit desktop app, cdbxpcmd CLI, native IMAPI2/SPTI burning engine, NAudio/TagLibSharp audio, and 64-bit DVD tools."
              Level="1"
              AllowAbsent="no"
              ConfigurableDirectory="INSTALLFOLDER">

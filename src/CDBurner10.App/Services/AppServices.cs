@@ -58,7 +58,7 @@ public sealed partial class AppServices : ObservableObject, IDisposable
             BurningEngine.Initialize();
             IsEngineInitialized = BurningEngine.IsInitialized;
             EngineStatusMessage = IsEngineInitialized
-                ? "StarBurnX ready"
+                ? "IMAPI2 / SPTI ready"
                 : "Burning engine unavailable";
         }
         catch (Exception ex)

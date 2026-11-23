@@ -7,7 +7,7 @@
             <StackPanel Spacing="4">
                 <TextBlock Text="Copy / Grab Disc" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock
-                    Text="Duplicate an optical disc directly to another drive or grab it to an ISO / MDS image on your hard disc."
+                    Text="Duplicate an optical disc directly to another drive or grab it to an ISO image on your hard disc."
                     Style="{StaticResource BodyTextBlockStyle}"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
@@ -71,7 +71,7 @@
                         SelectedIndex="0"
                         SelectionChanged="TargetModeRadio_SelectionChanged">
                         <RadioButton Content="Optical Drive (Copy Disc)" />
-                        <RadioButton Content="Hard Disc (Save as ISO / MDS Image)" />
+                        <RadioButton Content="Hard Disc (Save as ISO Image)" />
                     </RadioButtons>
 
                     <!-- Optical Target Options -->
@@ -109,7 +109,7 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <!-- Hard Disc ISO/MDS Target Options -->
+                    <!-- Hard Disc ISO Target Options -->
                     <StackPanel x:Name="HardDiscTargetPanel" Spacing="12" Visibility="Collapsed">
                         <Grid ColumnSpacing="10">
                             <Grid.ColumnDefinitions>
@@ -119,7 +119,7 @@
                             <TextBox
                                 x:Name="TargetImagePathBox"
                                 Grid.Column="0"
-                                Header="Output Image File (.iso or .mds)"
+                                Header="Output Image File (.iso)"
                                 PlaceholderText="Choose destination path for disc image..." />
                             <Button
                                 Grid.Column="1"

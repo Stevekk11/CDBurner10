@@ -4,7 +4,6 @@ using CDBurner10.App.Services;
 using CDBurner10.Core.Burning;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using RocketDivision.StarBurnX;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace CDBurner10.App.Views;
@@ -16,26 +15,26 @@ public sealed partial class DriveDiscInfoPage : Page
 {
     private DiscInfoModel _lastDiscInfo = DiscInfoModel.Empty;
 
-    private static readonly (string Name, STARBURN_DISC_TYPE Flag)[] MediaFormats =
+    private static readonly (string Name, OpticalDiscType Flag)[] MediaFormats =
     [
-        ("CD-ROM", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_ROM),
-        ("CD-R", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_R),
-        ("CD-RW", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_CD_RW),
-        ("DVD-ROM", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_ROM),
-        ("DVD-R", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_R),
-        ("DVD-RW", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_RW),
-        ("DVD-R Dual Layer", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_R_DL),
-        ("DVD+R", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_PLUS_R),
-        ("DVD+RW", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_PLUS_RW),
-        ("DVD+R Dual Layer", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_PLUS_R_DL),
-        ("DVD-RAM", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_DVD_RAM),
-        ("BD-ROM (Blu-Ray)", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD),
-        ("BD-R (Blu-Ray)", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD_R),
-        ("BD-R Dual Layer", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD_R_DL),
-        ("BD-RE (Blu-Ray)", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_BD_RE),
-        ("HD-DVD-ROM", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_HDDVD_ROM),
-        ("HD-DVD-R", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_HDDVD_R),
-        ("HD-DVD-RW", STARBURN_DISC_TYPE.STARBURN_DISC_TYPE_HDDVD_RW)
+        ("CD-ROM", OpticalDiscType.CdRom),
+        ("CD-R", OpticalDiscType.CdR),
+        ("CD-RW", OpticalDiscType.CdRw),
+        ("DVD-ROM", OpticalDiscType.DvdRom),
+        ("DVD-R", OpticalDiscType.DvdR),
+        ("DVD-RW", OpticalDiscType.DvdRw),
+        ("DVD-R Dual Layer", OpticalDiscType.DvdRDl),
+        ("DVD+R", OpticalDiscType.DvdPlusR),
+        ("DVD+RW", OpticalDiscType.DvdPlusRw),
+        ("DVD+R Dual Layer", OpticalDiscType.DvdPlusRDl),
+        ("DVD-RAM", OpticalDiscType.DvdRam),
+        ("BD-ROM (Blu-Ray)", OpticalDiscType.BdRom),
+        ("BD-R (Blu-Ray)", OpticalDiscType.BdR),
+        ("BD-R Dual Layer", OpticalDiscType.BdRDl),
+        ("BD-RE (Blu-Ray)", OpticalDiscType.BdRe),
+        ("HD-DVD-ROM", OpticalDiscType.HdDvdRom),
+        ("HD-DVD-R", OpticalDiscType.HdDvdR),
+        ("HD-DVD-RW", OpticalDiscType.HdDvdRw)
     ];
 
     public DriveDiscInfoPage()
@@ -109,8 +108,8 @@ public sealed partial class DriveDiscInfoPage : Page
 
         var matrix = MediaFormats.Select(m =>
         {
-            bool canRead = (drive.SupportedMediaRead & (int)m.Flag) != 0;
-            bool canWrite = (drive.SupportedMediaWrite & (int)m.Flag) != 0;
+            bool canRead = (drive.SupportedMediaRead & m.Flag) != 0;
+            bool canWrite = (drive.SupportedMediaWrite & m.Flag) != 0;
             return new MediaCapabilityRow(m.Name, canRead ? "✓ Supported" : "—", canWrite ? "✓ Supported" : "—");
         }).ToList();
         MediaMatrixListView.ItemsSource = matrix;

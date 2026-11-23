@@ -7,7 +7,7 @@
             <StackPanel Spacing="4">
                 <TextBlock Text="Burn ISO Image" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock
-                    Text="Write an ISO or MDS disc image directly to CD, DVD, or Blu-ray media."
+                    Text="Write an ISO disc image directly to CD, DVD, or Blu-ray media."
                     Style="{StaticResource BodyTextBlockStyle}"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
@@ -42,8 +42,8 @@
                         <TextBox
                             x:Name="IsoPathBox"
                             Grid.Column="0"
-                            Header="Image Path (.iso, .mds, .bin, .nrg)"
-                            PlaceholderText="Select an ISO or MDS image file..."
+                            Header="Image Path (.iso, .bin, .nrg)"
+                            PlaceholderText="Select an ISO image file..."
                             TextChanged="IsoPathBox_TextChanged" />
                         <Button
                             x:Name="BrowseIsoButton"

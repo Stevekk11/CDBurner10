@@ -4,7 +4,6 @@ using CDBurner10.Core.Burning;
 using CDBurner10.Core.Iso;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using RocketDivision.StarBurnX;
 
 namespace CDBurner10.App.Views.Dialogs;
 
@@ -25,9 +24,9 @@ public sealed partial class BootOptionsDialog : ContentDialog
         PlatformComboBox.SelectedIndex = Math.Clamp(boot.Platform, 0, 2);
         EmulationComboBox.SelectedIndex = boot.EmulationType switch
         {
-            STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_FLOPPY => 1,
-            STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_288M_FLOPPY => 2,
-            STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_HDD => 3,
+            BootEmulationType.Floppy144 => 1,
+            BootEmulationType.Floppy288 => 2,
+            BootEmulationType.HardDisk => 3,
             _ => 0
         };
 
@@ -127,10 +126,10 @@ public sealed partial class BootOptionsDialog : ContentDialog
             SectorsToLoad = Math.Max(1, (int)SectorsBox.Value),
             EmulationType = EmulationComboBox.SelectedIndex switch
             {
-                1 => STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_FLOPPY,
-                2 => STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_288M_FLOPPY,
-                3 => STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_HDD,
-                _ => STARBURN_BOOT_IMAGE_TYPE.STARBURN_BOOT_IMAGE_CDROM
+                1 => BootEmulationType.Floppy144,
+                2 => BootEmulationType.Floppy288,
+                3 => BootEmulationType.HardDisk,
+                _ => BootEmulationType.NoEmulation
             }
         };
     }

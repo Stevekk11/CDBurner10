@@ -20,7 +20,6 @@ public sealed partial class SettingsPage : Page
     private void SettingsPage_Loaded(object sender, RoutedEventArgs e)
     {
         LoadSettingsToUi();
-        CheckSptdAvailability();
     }
 
     private void LoadSettingsToUi()
@@ -54,7 +53,6 @@ public sealed partial class SettingsPage : Page
         CustomTempFolderBox.IsEnabled = s.UseCustomTempFolder;
         LoggingEnabledToggle.IsOn = s.LoggingEnabled;
         SelectComboByTag(LoggingLevelComboBox, s.LoggingLevel.ToString());
-        UseSptdToggle.IsOn = s.UseSPTD;
 
         // Data
         DefaultDiscLabelBox.Text = s.DataLabel;
@@ -77,15 +75,6 @@ public sealed partial class SettingsPage : Page
         _loading = false;
     }
 
-    private async void CheckSptdAvailability()
-    {
-        SptdStatusText.Text = "Checking SPTD driver availability...";
-        bool available = await Task.Run(BurningEngine.CheckSptdDriver);
-        SptdStatusText.Text = available
-            ? "SPTD driver detected on this system."
-            : "SPTD driver is not installed; Windows SPTI will be used automatically.";
-    }
-
     private void SaveUiToSettings()
     {
         if (_loading) return;
@@ -100,7 +89,6 @@ public sealed partial class SettingsPage : Page
         CustomTempFolderBox.IsEnabled = s.UseCustomTempFolder;
         s.LoggingEnabled = LoggingEnabledToggle.IsOn;
         if (int.TryParse(GetSelectedTag(LoggingLevelComboBox), out int logLvl)) s.LoggingLevel = logLvl;
-        s.UseSPTD = UseSptdToggle.IsOn;
 
         s.DataLabel = string.IsNullOrWhiteSpace(DefaultDiscLabelBox.Text) ? "Disc" : DefaultDiscLabelBox.Text.Trim();
         s.DataCacheFilesAutomatically = AutoCacheRemovableToggle.IsOn;

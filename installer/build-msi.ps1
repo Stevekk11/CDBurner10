@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "10.3.0.0",
+    [string]$Version = "10.4.0.0",
     [switch]$SkipPublish
 )
 
@@ -12,26 +12,26 @@ $wxsPath = Join-Path $PSScriptRoot "Package.wxs"
 $iconPath = Join-Path $repoRoot "src\CDBurner10.App\Assets\app.ico"
 $licensePath = Join-Path $PSScriptRoot "License.rtf"
 $shortVer = ($Version -split '\.')[0..2] -join '.'
-$msiPath = Join-Path $outDir "CDBurner10-$shortVer-win-x86.msi"
+$msiPath = Join-Path $outDir "CDBurner10-$shortVer-win-x64.msi"
 
 $dotnet = "C:\Users\Monika\.dotnet\dotnet.exe"
 if (-not (Test-Path $dotnet)) { $dotnet = "dotnet" }
 
 if (-not $SkipPublish) {
-    Write-Host "Publishing CDBurner10.App and CDBurner10.Cli to $deployDir..." -ForegroundColor Cyan
-    & $dotnet publish (Join-Path $repoRoot "src\CDBurner10.App\CDBurner10.App.csproj") -c Release -p:Platform=x86 -o $deployDir
+    Write-Host "Publishing CDBurner10.App and CDBurner10.Cli (win-x64) to $deployDir..." -ForegroundColor Cyan
+    & $dotnet publish (Join-Path $repoRoot "src\CDBurner10.App\CDBurner10.App.csproj") -c Release -p:Platform=x64 -o $deployDir
     if ($LASTEXITCODE -ne 0) { throw "App publish failed." }
 
-    & $dotnet publish (Join-Path $repoRoot "src\CDBurner10.Cli\CDBurner10.Cli.csproj") -c Release -p:Platform=x86 -o $deployDir
+    & $dotnet publish (Join-Path $repoRoot "src\CDBurner10.Cli\CDBurner10.Cli.csproj") -c Release -p:Platform=x64 -o $deployDir
     if ($LASTEXITCODE -ne 0) { throw "CLI publish failed." }
 }
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 if (Test-Path $msiPath) { Remove-Item $msiPath -Force }
 
-Write-Host "Building MSI installer with WiX..." -ForegroundColor Cyan
+Write-Host "Building 64-bit MSI installer with WiX..." -ForegroundColor Cyan
 & wix build $wxsPath `
-    -arch x86 `
+    -arch x64 `
     -ext WixToolset.UI.wixext `
     -d "ProductVersion=$Version" `
     -d "DeployDir=$deployDir" `

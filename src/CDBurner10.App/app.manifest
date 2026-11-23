@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="10.0.0.0" name="CDBurner10.exe" processorArchitecture="x86" type="win32" />
+  <assemblyIdentity version="10.4.0.0" name="CDBurner10.exe" processorArchitecture="amd64" type="win32" />
 
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
@@ -9,13 +9,6 @@
       </requestedPrivileges>
     </security>
   </trustInfo>
-
-  <!-- Reg-Free COM activation for StarBurnX15.dll -->
-  <dependency>
-    <dependentAssembly>
-      <assemblyIdentity name="Native.CsLib" version="4.5.8.7128" processorArchitecture="x86" type="win32" />
-    </dependentAssembly>
-  </dependency>
 
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>

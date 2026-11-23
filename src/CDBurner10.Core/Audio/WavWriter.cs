@@ -39,6 +39,13 @@ internal sealed class WavWriter : IDisposable
         _writer.Write(0); // Subchunk2Size placeholder
     }
 
+    public void WriteBytes(byte[] buffer, int offset, int count)
+    {
+        if (count <= 0) return;
+        _stream.Write(buffer, offset, count);
+        _dataBytesWritten += count;
+    }
+
     public void WriteSamples(short[] samples, int byteCount)
     {
         if (byteCount <= 0) return;

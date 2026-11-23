@@ -8,7 +8,7 @@ namespace CDBurner10.Core.Native;
 /// </summary>
 internal static class LibDvdCss
 {
-    public const string DllName = "libdvdcss-2-32bit.dll";
+    public const string DllName = "libdvdcss-2.dll";
 
     /// <summary>Ask libdvdcss to decrypt the returned sectors.</summary>
     public const int ReadDecrypt = 0x01;

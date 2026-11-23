@@ -143,8 +143,7 @@ public sealed partial class CopyDiscPage : Page
     {
         var path = await FilePickerHelper.PickSaveFileAsync("DiscImage", new Dictionary<string, IList<string>>
         {
-            ["ISO Disc Image"] = [".iso"],
-            ["Media Descriptor Image"] = [".mds"]
+            ["ISO Disc Image"] = [".iso"]
         });
         if (!string.IsNullOrWhiteSpace(path))
         {
@@ -179,7 +178,7 @@ public sealed partial class CopyDiscPage : Page
             targetPath = TargetImagePathBox.Text?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(targetPath))
             {
-                ShowStatus(InfoBarSeverity.Warning, "Output Path Required", "Choose a destination .iso file path (or .mds for non-CSS discs).");
+                ShowStatus(InfoBarSeverity.Warning, "Output Path Required", "Choose a destination .iso file path.");
                 return;
             }
 

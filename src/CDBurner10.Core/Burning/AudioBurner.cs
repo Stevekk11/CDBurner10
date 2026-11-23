@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using CDBurner10.Core.Audio;
+using CDBurner10.Core.Native;
 using CDBurner10.Core.Settings;
 using CDBurner10.Core.Utilities;
-using RocketDivision.StarBurnX;
 
 namespace CDBurner10.Core.Burning;
 
@@ -31,7 +31,7 @@ public sealed class AudioBurnOptions
 
 public sealed class AudioBurner
 {
-    private AudioBurnerClass? _burner;
+    private IDiscFormat2TrackAtOnce? _activeTao;
     private bool _isCancelled;
 
     public bool IsCancelled => _isCancelled;
@@ -63,82 +63,49 @@ public sealed class AudioBurner
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var burner = new AudioBurnerClass
-                    {
-                        Drive = options.Drive.RawDrive,
-                        Mode = options.GapMode == AudioGapMode.TaoPause
-                            ? STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_TAO
-                            : STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_DAO_96,
-                        NextSessionAllowed = !options.FinalizeDisc
-                    };
-                    if (options.FinalizeDisc) burner.KeepSessionOpened = false;
+                    bool useDao = options.GapMode != AudioGapMode.TaoPause &&
+                                  !string.IsNullOrWhiteSpace(options.Drive.Letter);
 
-                    if (options.GapMode == AudioGapMode.TaoPause)
+                    if (useDao)
                     {
-                        burner.AudioPauseLength = Math.Max(0, options.PauseSeconds);
+                        var daoTracks = new List<ScsiOpticalDevice.DaoAudioTrack>(preparedPaths.Count);
+                        for (int i = 0; i < preparedPaths.Count; i++)
+                        {
+                            var src = compilation.Tracks[i];
+                            string title = AudioTrackItem.StripToCdTextSize(
+                                string.IsNullOrWhiteSpace(src.CDTextTitle) ? src.Title : src.CDTextTitle);
+                            string artist = AudioTrackItem.StripToCdTextSize(
+                                string.IsNullOrWhiteSpace(src.CDTextArtist) ? src.Artist : src.CDTextArtist);
+                            daoTracks.Add(new ScsiOpticalDevice.DaoAudioTrack(preparedPaths[i], title, artist, PreGapSectors: 0));
+                        }
+
+                        try
+                        {
+                            ScsiOpticalDevice.BurnAudioDao(
+                                options.Drive.Letter,
+                                daoTracks,
+                                AudioTrackItem.StripToCdTextSize(compilation.Title),
+                                AudioTrackItem.StripToCdTextSize(compilation.Artist),
+                                options.EnableCdText,
+                                options.TestBurn,
+                                options.WriteSpeedKBps,
+                                progress,
+                                ct);
+                        }
+                        catch (IOException) when (!ct.IsCancellationRequested)
+                        {
+                            // Fallback to IMAPI2 TAO if drive does not support SAO cue sheet
+                            BurnTaoImapi2(preparedPaths, options, progress, ct);
+                        }
                     }
                     else
                     {
-                        burner.AudioPauseLength = 0;
+                        BurnTaoImapi2(preparedPaths, options, progress, ct);
                     }
-
-                    if (options.EnableCdText)
-                    {
-                        burner.Title = AudioTrackItem.StripToCdTextSize(compilation.Title);
-                        burner.Artist = AudioTrackItem.StripToCdTextSize(compilation.Artist);
-                    }
-
-                    if (options.WriteSpeedKBps > 0)
-                    {
-                        try { burner.WriteSpeed = options.WriteSpeedKBps; } catch (COMException) { }
-                    }
-
-                    for (int i = 0; i < preparedPaths.Count; i++)
-                    {
-                        var addedTrack = burner.AddFile(preparedPaths[i]);
-                        if (options.EnableCdText && addedTrack is not null)
-                        {
-                            var src = compilation.Tracks[i];
-                            addedTrack.Title = AudioTrackItem.StripToCdTextSize(
-                                string.IsNullOrWhiteSpace(src.CDTextTitle) ? src.Title : src.CDTextTitle);
-                            addedTrack.Artist = AudioTrackItem.StripToCdTextSize(
-                                string.IsNullOrWhiteSpace(src.CDTextArtist) ? src.Artist : src.CDTextArtist);
-                        }
-                    }
-
-                    int trackCount = burner.Tracks.Count;
-                    int tracksCompleted = 0;
-                    int lastBuf = 0;
-                    burner.OnBuffer += p => lastBuf = p;
-                    burner.OnProgress += (percent, timeRemaining) =>
-                    {
-                        int overall = burner.Mode == STARBURN_WRITE_MODE.STARBURN_WRITE_MODE_TAO && trackCount > 0
-                            ? (int)Math.Clamp((tracksCompleted * 100.0 + percent) / trackCount, 0, 100)
-                            : percent;
-
-                        if (percent == 100 && tracksCompleted < trackCount - 1)
-                        {
-                            tracksCompleted++;
-                        }
-
-                        progress?.Report(new BurnProgress(
-                            BurnPhase.Burning,
-                            overall,
-                            lastBuf,
-                            TimeSpan.FromSeconds(timeRemaining),
-                            tracksCompleted + 1,
-                            trackCount,
-                            $"Burning audio track {tracksCompleted + 1}/{trackCount}... {overall}%"));
-                    };
-                    burner.OnCloseSessionBegin += () =>
-                        progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, lastBuf, Message: "Closing audio session..."));
-
-                    _burner = burner;
-                    burner.Burn(options.TestBurn);
 
                     if (options.EjectAfterBurn && !_isCancelled)
                     {
-                        try { options.Drive.RawDrive.Eject(); } catch (COMException) { }
+                        try { options.Drive.Eject(); } catch { }
                     }
                 }
 
@@ -155,6 +122,103 @@ public sealed class AudioBurner
                 }
             }
         }, ct);
+    }
+
+    private void BurnTaoImapi2(
+        List<string> wavPaths,
+        AudioBurnOptions options,
+        IProgress<BurnProgress>? progress,
+        CancellationToken ct)
+    {
+        IDiscRecorder2? recorder = null;
+        IDiscFormat2TrackAtOnce? tao = null;
+        bool mediaPrepared = false;
+
+        try
+        {
+            recorder = options.Drive.OpenRecorder();
+            tao = Imapi2Interop.CreateDiscFormat2TrackAtOnce();
+            if (!tao.IsRecorderSupported(recorder))
+                throw new InvalidOperationException($"Drive '{options.Drive.DisplayName}' does not support Audio CD burning.");
+            if (!tao.IsCurrentMediaSupported(recorder))
+                throw new InvalidOperationException("No writable CD-R/CD-RW disc detected in the selected drive.");
+
+            tao.put_Recorder(recorder);
+            tao.put_ClientName("CDBurner10");
+            tao.put_BufferUnderrunFreeDisabled(false);
+            tao.put_DoNotFinalizeMedia(!options.FinalizeDisc);
+
+            if (options.WriteSpeedKBps > 0)
+            {
+                try { tao.SetWriteSpeed(Math.Max(1, options.WriteSpeedKBps / 2), false); } catch (COMException) { }
+            }
+
+            if (options.TestBurn)
+            {
+                progress?.Report(new BurnProgress(BurnPhase.Completed, 100, Message: "Audio CD test burn validated."));
+                return;
+            }
+
+            int totalTracks = wavPaths.Count;
+            int currentTrackIdx = 0;
+
+            var sink = new DiscFormat2TrackAtOnceEventSink(args =>
+            {
+                int bufPct = args.TotalSystemBuffer > 0
+                    ? (int)Math.Clamp(args.UsedSystemBuffer * 100.0 / args.TotalSystemBuffer, 0, 100)
+                    : 100;
+
+                int trackPct = args.SectorCount > 0
+                    ? (int)Math.Clamp((args.LastWrittenLba - args.StartLba) * 100.0 / args.SectorCount, 0, 100)
+                    : 0;
+                int overall = totalTracks > 0
+                    ? (int)Math.Clamp((currentTrackIdx * 100.0 + trackPct) / totalTracks, 0, 100)
+                    : trackPct;
+
+                progress?.Report(new BurnProgress(
+                    BurnPhase.Burning,
+                    overall,
+                    bufPct,
+                    TimeSpan.FromSeconds(Math.Max(0, args.RemainingTime)),
+                    currentTrackIdx + 1,
+                    totalTracks,
+                    $"Burning audio track {currentTrackIdx + 1}/{totalTracks}... {overall}%"));
+            });
+
+            _activeTao = tao;
+            using (Imapi2Interop.AdviseEventSink(tao, typeof(DDiscFormat2TrackAtOnceEvents).GUID, sink))
+            {
+                tao.PrepareMedia();
+                mediaPrepared = true;
+
+                for (int i = 0; i < wavPaths.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    currentTrackIdx = i;
+
+                    var (dataOffset, dataLength) = ScsiOpticalDevice.ReadWavPcmBounds(wavPaths[i]);
+                    using var fs = new FileStream(wavPaths[i], FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var pcmSlice = new PcmSliceStream(fs, dataOffset, dataLength);
+                    using var comStream = new ManagedComStream(pcmSlice, leaveOpen: true);
+
+                    tao.AddAudioTrack(comStream);
+                }
+
+                progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, 100, Message: "Closing audio session..."));
+                tao.ReleaseMedia();
+                mediaPrepared = false;
+            }
+        }
+        finally
+        {
+            _activeTao = null;
+            if (mediaPrepared && tao is not null)
+            {
+                try { tao.ReleaseMedia(); } catch { }
+            }
+            Imapi2Interop.SafeRelease(tao);
+            Imapi2Interop.SafeRelease(recorder);
+        }
     }
 
     private static List<string> PrepareTracks(
@@ -225,9 +289,89 @@ public sealed class AudioBurner
     public void Cancel()
     {
         _isCancelled = true;
-        _ = Task.Run(() =>
+        var tao = _activeTao;
+        if (tao is not null)
         {
-            try { _burner?.Cancel(); } catch { }
-        });
+            _ = Task.Run(() =>
+            {
+                try { tao.CancelAddTrack(); } catch { }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Exposes the raw 44.1kHz 16-bit stereo PCM payload of a WAV file padded to 2352-byte CD-DA sector boundaries.
+    /// </summary>
+    private sealed class PcmSliceStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly long _start;
+        private readonly long _dataLength;
+        private readonly long _paddedLength;
+        private long _position;
+
+        public PcmSliceStream(Stream inner, long start, long dataLength)
+        {
+            _inner = inner;
+            _start = start;
+            _dataLength = dataLength;
+            long rem = dataLength % ScsiOpticalDevice.AudioSectorSize;
+            _paddedLength = rem == 0 ? dataLength : dataLength + (ScsiOpticalDevice.AudioSectorSize - rem);
+            _inner.Seek(_start, SeekOrigin.Begin);
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _paddedLength;
+        public override long Position
+        {
+            get => _position;
+            set => Seek(value, SeekOrigin.Begin);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_position >= _paddedLength) return 0;
+            int toProvide = (int)Math.Min(count, _paddedLength - _position);
+            int totalRead = 0;
+
+            if (_position < _dataLength)
+            {
+                int fromFile = (int)Math.Min(toProvide, _dataLength - _position);
+                _inner.Seek(_start + _position, SeekOrigin.Begin);
+                int r = _inner.Read(buffer, offset, fromFile);
+                _position += r;
+                totalRead += r;
+                offset += r;
+                toProvide -= r;
+            }
+
+            if (toProvide > 0 && _position >= _dataLength)
+            {
+                Array.Clear(buffer, offset, toProvide);
+                _position += toProvide;
+                totalRead += toProvide;
+            }
+
+            return totalRead;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            long target = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => _position + offset,
+                SeekOrigin.End => _paddedLength + offset,
+                _ => _position
+            };
+            _position = Math.Clamp(target, 0, _paddedLength);
+            return _position;
+        }
+
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
