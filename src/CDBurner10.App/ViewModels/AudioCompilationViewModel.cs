@@ -180,8 +180,24 @@ public sealed partial class AudioCompilationViewModel : ObservableObject
 
     public void ClearAll()
     {
+        Player.Stop();
         Compilation.Tracks.Clear();
         RefreshTracks();
+        TryClearTempRipDirectory();
+    }
+
+    private static void TryClearTempRipDirectory()
+    {
+        try
+        {
+            var ripDir = Path.Combine(AppServices.Current.Settings.GetTempDirectory(), "Rip");
+            if (Directory.Exists(ripDir))
+                Directory.Delete(ripDir, recursive: true);
+        }
+        catch
+        {
+            // Best-effort cleanup if a file is still in use
+        }
     }
 
     public ItemAddError[] LoadAxp(string axpPath)
