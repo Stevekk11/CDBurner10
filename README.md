@@ -35,7 +35,7 @@ dotnet publish src/CDBurner10.App/CDBurner10.App.csproj -c Release -p:Platform=x
 dotnet publish src/CDBurner10.Cli/CDBurner10.Cli.csproj -c Release -p:Platform=x64 -o deploy
 
 # Build 64-bit MSI installer (requires WiX Toolset v7)
-.\installer\build-msi.ps1 -Version 10.4.0.0
+.\installer\build-msi.ps1 -Version 10.x.x.x
 ```
 
 ## License
