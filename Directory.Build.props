@@ -5,9 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PlatformTarget>x86</PlatformTarget>
     <Platforms>x86</Platforms>
-    <Version>10.5.5.0</Version>
-    <AssemblyVersion>10.5.5.0</AssemblyVersion>
-    <FileVersion>10.5.5.0</FileVersion>
+    <Version>10.5.6.0</Version>
+    <AssemblyVersion>10.5.6.0</AssemblyVersion>
+    <FileVersion>10.5.6.0</FileVersion>
     <Product>CDBurner10</Product>
     <Authors>CDBurner10</Authors>
   </PropertyGroup>
