@@ -19,6 +19,7 @@ public sealed partial class VideoFromFilePanel : UserControl
     {
         _bluRay = bluRay;
         string disc = bluRay ? "Video Blu-ray" : "Video DVD";
+        BackButtonText.Text = $"Back to {disc}";
         TitleText.Text = $"Burn from MP4/MKV - {disc}";
         SubtitleText.Text = bluRay
             ? "Convert MP4 or MKV files into a Blu-ray compatible disc (BDMV)."
@@ -39,6 +40,9 @@ public sealed partial class VideoFromFilePanel : UserControl
         foreach (var i in items) box.Items.Add(i);
         box.SelectedIndex = 0;
     }
+
+    private void Back_Click(object sender, RoutedEventArgs e)
+        => AppServices.Current.NavigateTo(_bluRay ? "bluray" : "video");
 
     private async void Browse_Click(object sender, RoutedEventArgs e)
     {
