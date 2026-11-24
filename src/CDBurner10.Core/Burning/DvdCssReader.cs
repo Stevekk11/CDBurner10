@@ -20,12 +20,15 @@ public static class DvdCssReader
     public static long GetSectorCount(long byteCount) =>
         byteCount <= 0 ? 0 : (byteCount + BlockSize - 1) / BlockSize;
 
-    public static void GrabToIso(
+    public static BadSectorTracker GrabToIso(
         DriveModel drive,
         string targetPath,
         long expectedBytes,
         IProgress<BurnProgress>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        int retries = 3,
+        bool ignoreBadBlocks = false,
+        bool disableHardwareEc = false)
     {
         if (string.IsNullOrWhiteSpace(drive.Letter))
             throw new InvalidOperationException("The selected drive does not report a drive letter, so libdvdcss cannot open it.");
@@ -37,17 +40,26 @@ public static class DvdCssReader
         string directory = Path.GetDirectoryName(targetPath) ?? string.Empty;
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
 
+        using var hwEcScope = ScsiOpticalDevice.EnterHardwareErrorCorrectionScope(drive.Letter, disableHardwareEc);
+
         string devicePath = $"{drive.Letter}:";
         IntPtr dvd = LibDvdCss.dvdcss_open(devicePath);
         if (dvd == IntPtr.Zero)
             throw new InvalidOperationException($"libdvdcss could not open drive {devicePath}.");
 
+        bool completed = false;
+        var tracker = new BadSectorTracker();
+        int maxAttempts = ScsiOpticalDevice.GetMaxReadAttempts(retries);
+
         try
         {
             long expectedBlocks = GetSectorCount(expectedBytes);
             var buffer = new byte[BlockSize * BlocksPerRead];
+            var singleBlock = new byte[BlockSize];
             long lba = 0;
             long writtenBytes = 0;
+            int lastPct = -1;
+            int lastReportedErrors = 0;
             var stopwatch = Stopwatch.StartNew();
 
             using var output = new FileStream(
@@ -65,49 +77,117 @@ public static class DvdCssReader
                 if (expectedBlocks > 0 && lba >= expectedBlocks)
                     break;
 
-                int seekResult = LibDvdCss.dvdcss_seek(dvd, (int)lba, 0);
-                if (seekResult < 0)
-                {
-                    if (writtenBytes > 0) break;
-                    throw new InvalidOperationException(
-                        $"libdvdcss could not seek to sector {lba}: {LibDvdCss.GetError(dvd)}");
-                }
-
                 int blocksRequested = BlocksPerRead;
                 if (expectedBlocks > 0)
                     blocksRequested = (int)Math.Min(blocksRequested, expectedBlocks - lba);
 
-                int blocksRead = LibDvdCss.dvdcss_read(dvd, buffer, blocksRequested, LibDvdCss.ReadDecrypt);
-                if (blocksRead < 0)
-                    throw new InvalidOperationException(
-                        $"libdvdcss failed while reading sector {lba}: {LibDvdCss.GetError(dvd)}");
+                int seekResult = LibDvdCss.dvdcss_seek(dvd, (int)lba, 0);
+                if (seekResult < 0 && writtenBytes > 0 && expectedBlocks <= 0)
+                    break;
+
+                int blocksRead = seekResult >= 0
+                    ? LibDvdCss.dvdcss_read(dvd, buffer, blocksRequested, LibDvdCss.ReadDecrypt)
+                    : -1;
+
                 if (blocksRead == 0)
                     break;
 
-                int bytesRead = blocksRead * BlockSize;
-                output.Write(buffer, 0, bytesRead);
-                lba += blocksRead;
-                writtenBytes += bytesRead;
+                if (blocksRead > 0)
+                {
+                    int bytesRead = blocksRead * BlockSize;
+                    output.Write(buffer, 0, bytesRead);
+                    lba += blocksRead;
+                    writtenBytes += bytesRead;
+                }
+                else
+                {
+                    // 64-sector chunk failed — fall back to 1-sector reads with retries and optional zero-fill
+                    for (int s = 0; s < blocksRequested; s++)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        long sectorLba = lba + s;
+                        if (expectedBlocks <= 0 && writtenBytes > 0 && LibDvdCss.dvdcss_seek(dvd, (int)sectorLba, 0) < 0)
+                        {
+                            expectedBlocks = sectorLba;
+                            break;
+                        }
 
-                progress?.Report(new BurnProgress(
-                    BurnPhase.Grabbing,
-                    ComputePercent(writtenBytes, expectedBytes),
-                    TimeRemaining: EstimateRemaining(writtenBytes, expectedBytes, stopwatch.Elapsed),
-                    Message: $"Decrypting CSS DVD... {ComputePercent(writtenBytes, expectedBytes)}%"));
+                        if (TryReadSingleCssSector(dvd, (int)sectorLba, singleBlock, maxAttempts, ct))
+                        {
+                            output.Write(singleBlock, 0, BlockSize);
+                        }
+                        else
+                        {
+                            if (!ignoreBadBlocks)
+                            {
+                                throw new InvalidOperationException(
+                                    $"libdvdcss failed while reading sector {sectorLba} after {maxAttempts} attempt(s): {LibDvdCss.GetError(dvd)}");
+                            }
+
+                            Array.Clear(singleBlock, 0, BlockSize);
+                            output.Write(singleBlock, 0, BlockSize);
+                            tracker.RecordBadSector(sectorLba);
+                        }
+
+                        writtenBytes += BlockSize;
+                    }
+
+                    lba += blocksRequested;
+                }
+
+                int pct = ComputePercent(writtenBytes, expectedBytes);
+                if (pct != lastPct || tracker.BadSectorCount != lastReportedErrors)
+                {
+                    lastPct = pct;
+                    lastReportedErrors = tracker.BadSectorCount;
+                    string errSuffix = tracker.BadSectorCount > 0
+                        ? $" (Read errors: {tracker.BadSectorCount})"
+                        : string.Empty;
+                    progress?.Report(new BurnProgress(
+                        BurnPhase.Grabbing,
+                        pct,
+                        TimeRemaining: EstimateRemaining(writtenBytes, expectedBytes, stopwatch.Elapsed),
+                        Message: $"Decrypting CSS DVD... {pct}%{errSuffix}",
+                        ReadErrors: tracker.BadSectorCount));
+                }
             }
 
             if (writtenBytes == 0)
                 throw new InvalidOperationException($"libdvdcss returned no data for drive {devicePath}.");
-        }
-        catch
-        {
-            TryDelete(targetPath);
-            throw;
+
+            completed = true;
+            return tracker;
         }
         finally
         {
             LibDvdCss.dvdcss_close(dvd);
+            if (!completed)
+                TryDelete(targetPath);
         }
+    }
+
+    private static bool TryReadSingleCssSector(
+        IntPtr dvd,
+        int sectorLba,
+        byte[] singleBlock,
+        int maxAttempts,
+        CancellationToken ct)
+    {
+        int attempts = Math.Max(1, maxAttempts);
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (LibDvdCss.dvdcss_seek(dvd, sectorLba, 0) >= 0 &&
+                LibDvdCss.dvdcss_read(dvd, singleBlock, 1, LibDvdCss.ReadDecrypt) == 1)
+            {
+                return true;
+            }
+
+            if (attempt + 1 < attempts)
+                Thread.Sleep(25);
+        }
+
+        return false;
     }
 
     private static int ComputePercent(long writtenBytes, long expectedBytes)

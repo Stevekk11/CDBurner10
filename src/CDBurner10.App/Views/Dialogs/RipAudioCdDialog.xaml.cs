@@ -1,6 +1,7 @@
 using CDBurner10.App.Converters;
 using CDBurner10.App.Services;
 using CDBurner10.Core.Burning;
+using CDBurner10.Core.Utilities;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage.Pickers;
@@ -11,6 +12,10 @@ public sealed record AudioCdTrackRow(int TrackNumber, string TrackLabel, string 
 
 public sealed partial class RipAudioCdDialog : ContentDialog
 {
+    private CancellationTokenSource? _ripCts;
+    private DiscGrabber? _activeGrabber;
+    private bool _isRipping;
+
     public IReadOnlyList<string> RippedFiles { get; private set; } = [];
 
     public RipAudioCdDialog(DriveModel? preferredDrive)
@@ -88,21 +93,45 @@ public sealed partial class RipAudioCdDialog : ContentDialog
         }
     }
 
-    private void DriveComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => _ = LoadTracksAsync();
-    private void RefreshButton_Click(object sender, RoutedEventArgs e) => _ = LoadTracksAsync();
+    private void DriveComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_isRipping) _ = LoadTracksAsync();
+    }
+
+    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isRipping) _ = LoadTracksAsync();
+    }
+
+    private void CancelRipButton_Click(object sender, RoutedEventArgs e)
+    {
+        CancelRipButton.IsEnabled = false;
+        RipStatusText.Text = "Cancelling rip...";
+        _ripCts?.Cancel();
+        _activeGrabber?.Cancel();
+    }
+
+    private void ContentDialog_Closing(ContentDialog sender, ContentDialogClosingEventArgs args)
+    {
+        if (_isRipping && args.Result == ContentDialogResult.None)
+        {
+            _ripCts?.Cancel();
+            _activeGrabber?.Cancel();
+        }
+    }
 
     private async void ContentDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
         var deferral = args.GetDeferral();
         try
         {
-            var ripped = await RipSelectedAsync(exportFolder: null);
-            if (ripped is null)
+            var outcome = await RipSelectedAsync(exportFolder: null);
+            if (outcome is null || outcome.RippedPaths.Count == 0)
             {
                 args.Cancel = true;
                 return;
             }
-            RippedFiles = ripped;
+            RippedFiles = outcome.RippedPaths;
         }
         finally
         {
@@ -119,13 +148,29 @@ public sealed partial class RipAudioCdDialog : ContentDialog
             var folder = await FilePickerHelper.PickFolderAsync(PickerLocationId.MusicLibrary);
             if (string.IsNullOrWhiteSpace(folder)) return;
 
-            var ripped = await RipSelectedAsync(exportFolder: folder);
-            if (ripped is { Count: > 0 })
+            var outcome = await RipSelectedAsync(exportFolder: folder);
+            if (outcome is { RippedPaths.Count: > 0 })
             {
-                StatusInfoBar.Severity = InfoBarSeverity.Success;
-                StatusInfoBar.Title = "Tracks Exported";
-                StatusInfoBar.Message = $"Exported {ripped.Count} WAV track(s) to '{folder}'.";
-                StatusInfoBar.IsOpen = true;
+                if (outcome.TotalPaddedSectors > 0 || outcome.SkippedTracks.Count > 0)
+                {
+                    var details = new List<string>();
+                    if (outcome.TotalPaddedSectors > 0)
+                        details.Add($"{outcome.TotalPaddedSectors} scratched sector(s) padded across {string.Join(", ", outcome.PaddedTracks)}");
+                    if (outcome.SkippedTracks.Count > 0)
+                        details.Add($"skipped unreadable: {string.Join(", ", outcome.SkippedTracks)}");
+
+                    StatusInfoBar.Severity = InfoBarSeverity.Warning;
+                    StatusInfoBar.Title = "Tracks Exported with Read Warnings";
+                    StatusInfoBar.Message = $"Exported {outcome.RippedPaths.Count} WAV track(s) to '{folder}' ({string.Join("; ", details)}).";
+                    StatusInfoBar.IsOpen = true;
+                }
+                else
+                {
+                    StatusInfoBar.Severity = InfoBarSeverity.Success;
+                    StatusInfoBar.Title = "Tracks Exported";
+                    StatusInfoBar.Message = $"Exported {outcome.RippedPaths.Count} WAV track(s) to '{folder}'.";
+                    StatusInfoBar.IsOpen = true;
+                }
             }
         }
         finally
@@ -134,26 +179,40 @@ public sealed partial class RipAudioCdDialog : ContentDialog
         }
     }
 
-    private async Task<List<string>?> RipSelectedAsync(string? exportFolder)
+    private sealed record RipBatchOutcome(
+        List<string> RippedPaths,
+        int TotalPaddedSectors,
+        List<string> PaddedTracks,
+        List<string> SkippedTracks);
+
+    private async Task<RipBatchOutcome?> RipSelectedAsync(string? exportFolder)
     {
         var drive = DriveComboBox.SelectedItem as DriveModel;
         var selected = AudioTracksListView.SelectedItems.OfType<AudioCdTrackRow>().ToList();
         if (drive is null || selected.Count == 0) return null;
 
-        IsPrimaryButtonEnabled = false;
-        IsSecondaryButtonEnabled = false;
-        DriveComboBox.IsEnabled = false;
-        ReadSpeedComboBox.IsEnabled = false;
-        RipProgressBar.Visibility = Visibility.Visible;
+        _isRipping = true;
+        _ripCts = new CancellationTokenSource();
+        var ct = _ripCts.Token;
+
+        StatusInfoBar.IsOpen = false;
+        SetRipBusyUi(true);
         RipProgressBar.Value = 0;
+
+        var grabber = new DiscGrabber();
+        _activeGrabber = grabber;
+        var ripped = new List<string>();
+        var paddedTracks = new List<string>();
+        var skippedTracks = new List<string>();
+        int totalPaddedSectors = 0;
+        bool recoverScratches = RecoverBadSectorsCheckBox.IsChecked == true;
+        int readSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
 
         try
         {
-            var grabber = new DiscGrabber();
-            var ripped = new List<string>();
-
             for (int i = 0; i < selected.Count; i++)
             {
+                ct.ThrowIfCancellationRequested();
                 var tr = selected[i];
                 var wavPath = string.IsNullOrWhiteSpace(exportFolder)
                     ? AppServices.Current.Settings.GetTempRipFileName($"Track_{tr.TrackNumber:D2}", ".wav")
@@ -165,19 +224,70 @@ public sealed partial class RipAudioCdDialog : ContentDialog
                     RipStatusText.Text = $"Ripping Track {tr.TrackNumber:D2} ({idx + 1}/{selected.Count})... {p.Percent}%";
                 });
 
-                int readSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
                 var opts = new GrabOptions
                 {
                     Drive = drive,
                     TargetPath = wavPath,
-                    ReadSpeedKBps = readSpeed
+                    ReadSpeedKBps = readSpeed,
+                    IgnoreBadBlocks = recoverScratches,
+                    NumberOfReadRetries = 3
                 };
-                await grabber.GrabTrackAsync(opts, tr.TrackNumber, isAudio: true, prog);
-                ripped.Add(wavPath);
+
+                try
+                {
+                    var result = await grabber.GrabTrackAsync(opts, tr.TrackNumber, isAudio: true, prog, ct);
+                    ripped.Add(wavPath);
+                    if (result.BadSectorCount > 0)
+                    {
+                        totalPaddedSectors += result.BadSectorCount;
+                        paddedTracks.Add($"Track {tr.TrackNumber:D2} ({result.BadSectorCount})");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    PathHelper.TryDeleteFile(wavPath);
+                    throw;
+                }
+                catch (Exception trackEx)
+                {
+                    PathHelper.TryDeleteFile(wavPath);
+                    skippedTracks.Add($"Track {tr.TrackNumber:D2}");
+                    RipStatusText.Text = $"Skipped unreadable Track {tr.TrackNumber:D2}: {trackEx.Message}";
+                }
             }
 
-            RipStatusText.Text = $"Finished ripping {ripped.Count} track(s).";
-            return ripped;
+            if (ripped.Count == 0 && skippedTracks.Count > 0)
+            {
+                StatusInfoBar.Severity = InfoBarSeverity.Error;
+                StatusInfoBar.Title = "Rip Failed";
+                StatusInfoBar.Message = $"Could not read any selected track ({string.Join(", ", skippedTracks)}). Enable scratch recovery or lower the read speed.";
+                StatusInfoBar.IsOpen = true;
+                RipStatusText.Text = "No tracks could be ripped.";
+                return null;
+            }
+
+            string warnSuffix = totalPaddedSectors > 0 || skippedTracks.Count > 0
+                ? $" ({totalPaddedSectors} sector(s) padded, {skippedTracks.Count} skipped)"
+                : string.Empty;
+            RipStatusText.Text = $"Finished ripping {ripped.Count} track(s){warnSuffix}.";
+            return new RipBatchOutcome(ripped, totalPaddedSectors, paddedTracks, skippedTracks);
+        }
+        catch (OperationCanceledException)
+        {
+            if (string.IsNullOrWhiteSpace(exportFolder))
+            {
+                foreach (var tempFile in ripped)
+                    PathHelper.TryDeleteFile(tempFile);
+            }
+
+            StatusInfoBar.Severity = InfoBarSeverity.Warning;
+            StatusInfoBar.Title = "Rip Cancelled";
+            StatusInfoBar.Message = string.IsNullOrWhiteSpace(exportFolder) || ripped.Count == 0
+                ? "Audio CD ripping was cancelled."
+                : $"Cancelled after exporting {ripped.Count} completed track(s).";
+            StatusInfoBar.IsOpen = true;
+            RipStatusText.Text = "Rip cancelled.";
+            return null;
         }
         catch (Exception ex)
         {
@@ -189,12 +299,26 @@ public sealed partial class RipAudioCdDialog : ContentDialog
         }
         finally
         {
-            RipProgressBar.Visibility = Visibility.Collapsed;
-            DriveComboBox.IsEnabled = true;
-            ReadSpeedComboBox.IsEnabled = true;
-            IsPrimaryButtonEnabled = true;
-            IsSecondaryButtonEnabled = true;
+            _activeGrabber = null;
+            _ripCts?.Dispose();
+            _ripCts = null;
+            _isRipping = false;
+            SetRipBusyUi(false);
         }
+    }
+
+    private void SetRipBusyUi(bool busy)
+    {
+        IsPrimaryButtonEnabled = !busy;
+        IsSecondaryButtonEnabled = !busy;
+        DriveComboBox.IsEnabled = !busy;
+        ReadSpeedComboBox.IsEnabled = !busy;
+        RefreshButton.IsEnabled = !busy;
+        AudioTracksListView.IsEnabled = !busy;
+        RecoverBadSectorsCheckBox.IsEnabled = !busy;
+        RipProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        CancelRipButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        CancelRipButton.IsEnabled = busy;
     }
 
     private static string GetUniqueExportPath(string folder, string baseName, string extension)

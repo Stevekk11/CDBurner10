@@ -245,5 +245,21 @@
   "Convert BIN, NRG (Nero), or B5I (BlindWrite) disc images into standard ISO9660 .iso files.": "BIN-, NRG- (Nero) oder B5I-Abbilder (BlindWrite) in standardmäßige ISO9660-.iso-Dateien umwandeln.",
   "Erase rewritable CD-RW, DVD±RW, DVD-RAM, or BD-RE discs quickly or securely.": "Wiederbeschreibbare CD-RW-, DVD±RW-, DVD-RAM- oder BD-RE-Discs schnell oder sicher löschen.",
   "Version 10.5.3 (64-bit) • Open-Source Optical Media Suite": "Version 10.5.3 (64-Bit) • Open-Source-Suite für optische Medien",
-  "An independent, 100% open-source .NET 10 + WinUI 3 (Windows App SDK) optical media suite for Windows, delivering full CD, DVD, HD-DVD, and Blu-ray authoring, audio ripping, and GPU-accelerated DVD to MP4 conversion with native Windows 11 Fluent Design.": "Eine unabhängige, 100 % quelloffene .NET 10 + WinUI 3 Suite für optische Medien unter Windows mit umfassendem CD-, DVD-, HD-DVD- und Blu-ray-Authoring, Audio-Ripping und GPU-beschleunigter DVD-zu-MP4-Konvertierung im nativen Windows-11-Fluent-Design."
+  "An independent, 100% open-source .NET 10 + WinUI 3 (Windows App SDK) optical media suite for Windows, delivering full CD, DVD, HD-DVD, and Blu-ray authoring, audio ripping, and GPU-accelerated DVD to MP4 conversion with native Windows 11 Fluent Design.": "Eine unabhängige, 100 % quelloffene .NET 10 + WinUI 3 Suite für optische Medien unter Windows mit umfassendem CD-, DVD-, HD-DVD- und Blu-ray-Authoring, Audio-Ripping und GPU-beschleunigter DVD-zu-MP4-Konvertierung im nativen Windows-11-Fluent-Design.",
+  "Hard Disc (Save Image / Video Stream)": "Festplatte (Abbild / Videostream speichern)",
+  "DVD-Video Grab Mode": "DVD-Video-Lesemodus",
+  "Full Disc Image (.iso) — Linear sector copy": "Vollständiges Abbild (.iso) — Lineare Sektorkopie",
+  "Main Movie / Title Stream (.mpg) — Navigated (ARccOS safe)": "Hauptfilm / Titelstream (.mpg) — Navigiert (ARccOS-sicher)",
+  "DVD Title": "DVD-Titel",
+  "Output Image File (.iso)": "Ausgabe-Abbilddatei (.iso)",
+  "Output Video Stream (.mpg)": "Ausgabe-Videostream (.mpg)",
+  "Open in DVD to MP4...": "In DVD zu MP4 öffnen...",
+  "Convert to MP4...": "In MP4 konvertieren...",
+  "Extract Video (.mpg)": "Video extrahieren (.mpg)",
+  "Grab Disc to Image": "Disc als Abbild speichern",
+  "ISO / MPG File or VIDEO_TS Folder": "ISO- / MPG-Datei oder VIDEO_TS-Ordner",
+  "DVD-Video ISO, MPG stream, or VIDEO_TS folder": "DVD-Video-ISO, MPG-Stream oder VIDEO_TS-Ordner",
+  "File...": "Datei...",
+  "Recover scratched sectors (retry & pad unreadable frames)": "Zerkratzte Sektoren wiederherstellen (wiederholen & unlesbare Frames auffüllen)",
+  "Cancel Rip": "Rippen abbrechen"
 }

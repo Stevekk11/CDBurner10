@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using CDBurner10.Core.Burning;
+using CDBurner10.Core.Native;
 using Microsoft.Win32.SafeHandles;
 
 namespace CDBurner10.Core.Audio;
@@ -219,21 +221,45 @@ public static class CdAudioDevice
 
     /// <summary>
     /// Rips an Audio CD track directly to a standard 44.1 kHz 16-bit stereo WAV file.
+    /// Deletes any incomplete WAV output if cancelled or aborted by an unrecovered read error.
     /// </summary>
-    public static void RipTrackToWav(
+    public static BadSectorTracker RipTrackToWav(
         string driveLetter,
         int trackNumber1Based,
         string outputWavPath,
         IProgress<double>? progress = null,
         CancellationToken ct = default,
-        int readSpeedKBps = 0)
+        int readSpeedKBps = 0,
+        int retries = 3,
+        bool padUnreadableWithSilence = true)
     {
         var dir = Path.GetDirectoryName(outputWavPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        using var wav = new WavWriter(outputWavPath, sampleRate: 44100, channels: 2, bitsPerSample: 16);
-        using var adapter = new WavWriterStream(wav);
-        ReadAudioTrackPcm(driveLetter, trackNumber1Based, adapter, progress, ct, readSpeedKBps);
+        bool completed = false;
+        try
+        {
+            using var wav = new WavWriter(outputWavPath, sampleRate: 44100, channels: 2, bitsPerSample: 16);
+            using var adapter = new WavWriterStream(wav);
+            var tracker = ReadAudioTrackPcm(
+                driveLetter,
+                trackNumber1Based,
+                adapter,
+                progress,
+                ct,
+                readSpeedKBps,
+                retries,
+                padUnreadableWithSilence);
+            completed = true;
+            return tracker;
+        }
+        finally
+        {
+            if (!completed)
+            {
+                try { if (File.Exists(outputWavPath)) File.Delete(outputWavPath); } catch { }
+            }
+        }
     }
 
     private sealed class WavWriterStream(WavWriter writer) : Stream
@@ -252,20 +278,25 @@ public static class CdAudioDevice
 
     /// <summary>
     /// Reads an Audio CD track's raw 44.1 kHz 16-bit stereo PCM data directly via IOCTL_CDROM_RAW_READ.
+    /// Falls back to single-sector reads with retries when a 26-sector burst fails, optionally padding
+    /// unreadable scratched frames with digital silence instead of aborting the rip.
     /// </summary>
-    public static void ReadAudioTrackPcm(
+    public static BadSectorTracker ReadAudioTrackPcm(
         string driveLetter,
         int trackNumber1Based,
         Stream pcmOutput,
         IProgress<double>? progress = null,
         CancellationToken ct = default,
-        int readSpeedKBps = 0)
+        int readSpeedKBps = 0,
+        int retries = 3,
+        bool padUnreadableWithSilence = true)
     {
         if (string.IsNullOrWhiteSpace(driveLetter))
             throw new ArgumentException("Drive letter is required.", nameof(driveLetter));
 
+        var tracker = new BadSectorTracker();
         char letter = char.ToUpperInvariant(driveLetter.Trim()[0]);
-        CDBurner10.Core.Native.ScsiOpticalDevice.TrySetReadSpeed(letter.ToString(), readSpeedKBps);
+        ScsiOpticalDevice.TrySetReadSpeed(letter.ToString(), readSpeedKBps);
         using var handle = OpenDevice(letter);
         if (handle.IsInvalid)
             throw new IOException($"Could not open optical drive {letter}: for CD-DA reading.");
@@ -274,9 +305,11 @@ public static class CdAudioDevice
             throw new InvalidOperationException($"Audio track {trackNumber1Based} was not found on drive {letter}:.");
 
         int totalSectors = Math.Max(0, endLba - startLba);
-        if (totalSectors == 0) return;
+        if (totalSectors == 0) return tracker;
 
+        int maxAttempts = ScsiOpticalDevice.GetMaxReadAttempts(retries);
         var buffer = new byte[SectorsPerRead * CdAudioSectorBytes];
+        var singleSector = new byte[CdAudioSectorBytes];
         int current = startLba;
         int lastPct = -1;
 
@@ -293,13 +326,38 @@ public static class CdAudioDevice
             };
 
             int bytesExpected = count * CdAudioSectorBytes;
-            if (!DeviceIoControl(handle, IOCTL_CDROM_RAW_READ, ref rawInfo, Marshal.SizeOf<RAW_READ_INFO>(),
-                    buffer, bytesExpected, out uint bytesReturned, IntPtr.Zero))
+            if (DeviceIoControl(handle, IOCTL_CDROM_RAW_READ, ref rawInfo, Marshal.SizeOf<RAW_READ_INFO>(),
+                    buffer, bytesExpected, out uint bytesReturned, IntPtr.Zero) &&
+                bytesReturned == (uint)bytesExpected)
             {
-                throw new IOException($"Failed to read CD-DA audio sector {current} on drive {letter}: (Win32 error {Marshal.GetLastWin32Error()}).");
+                pcmOutput.Write(buffer, 0, (int)bytesReturned);
+            }
+            else
+            {
+                // 26-sector burst failed — isolate bad audio frames 1 sector at a time with retries
+                for (int s = 0; s < count; s++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int sectorLba = current + s;
+                    if (TryReadSingleAudioSector(handle, sectorLba, singleSector, maxAttempts, ct, out int lastWin32Err))
+                    {
+                        pcmOutput.Write(singleSector, 0, CdAudioSectorBytes);
+                    }
+                    else
+                    {
+                        if (!padUnreadableWithSilence)
+                        {
+                            throw new IOException(
+                                $"Failed to read CD-DA audio sector {sectorLba} on drive {letter}: after {maxAttempts} attempt(s) (Win32 error {lastWin32Err}).");
+                        }
+
+                        Array.Clear(singleSector, 0, CdAudioSectorBytes);
+                        pcmOutput.Write(singleSector, 0, CdAudioSectorBytes);
+                        tracker.RecordBadSector(sectorLba);
+                    }
+                }
             }
 
-            pcmOutput.Write(buffer, 0, (int)bytesReturned);
             current += count;
 
             int pct = (int)Math.Clamp((double)(current - startLba) / totalSectors * 100.0, 0, 100);
@@ -309,6 +367,43 @@ public static class CdAudioDevice
                 progress?.Report(pct);
             }
         }
+
+        return tracker;
+    }
+
+    private static bool TryReadSingleAudioSector(
+        SafeFileHandle handle,
+        int sectorLba,
+        byte[] singleSector,
+        int maxAttempts,
+        CancellationToken ct,
+        out int lastWin32Error)
+    {
+        lastWin32Error = 0;
+        int attempts = Math.Max(1, maxAttempts);
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var rawInfo = new RAW_READ_INFO
+            {
+                DiskOffset = (long)sectorLba * 2048L,
+                SectorCount = 1,
+                TrackMode = TRACK_MODE_CDDA
+            };
+
+            if (DeviceIoControl(handle, IOCTL_CDROM_RAW_READ, ref rawInfo, Marshal.SizeOf<RAW_READ_INFO>(),
+                    singleSector, CdAudioSectorBytes, out uint returned, IntPtr.Zero) &&
+                returned == CdAudioSectorBytes)
+            {
+                return true;
+            }
+
+            lastWin32Error = Marshal.GetLastWin32Error();
+            if (attempt + 1 < attempts)
+                Thread.Sleep(20);
+        }
+
+        return false;
     }
 
     private static bool TryGetTrackRange(SafeFileHandle handle, int trackNumber1Based, out int startLba, out int endLba)

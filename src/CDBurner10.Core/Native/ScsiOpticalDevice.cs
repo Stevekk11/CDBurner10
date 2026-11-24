@@ -731,7 +731,162 @@ internal static class ScsiOpticalDevice
     // Linear Data Sector Reading (Grab ISO / Track) & Post-Burn Verification
     // =========================================================================
 
-    public static void GrabDataSectorsToFile(
+    /// <summary>
+    /// Converts a user-configured retry count (0..N) into total read attempts (1 initial read + retries).
+    /// </summary>
+    public static int GetMaxReadAttempts(int retries) => 1 + Math.Max(0, retries);
+
+    /// <summary>
+    /// Parses a MODE SENSE (10) response for Mode Page 0x01 (Read/Write Error Recovery Parameters)
+    /// and builds both the exact restore buffer and a modified MODE SELECT (10) buffer that disables
+    /// hardware error correction / retries according to <paramref name="variant"/>:
+    /// 0 = TB (0x20) | DCR (0x01) + ReadRetryCount = 0;
+    /// 1 = TB (0x20) + ReadRetryCount = 0;
+    /// 2 = ReadRetryCount = 0 only.
+    /// </summary>
+    internal static byte[]? BuildDisabledEcModeSelectBuffer(
+        ReadOnlySpan<byte> modeSense10Buf,
+        int variant,
+        out byte[]? savedOriginalModeSelect)
+    {
+        savedOriginalModeSelect = null;
+        if (modeSense10Buf.Length < 12)
+            return null;
+
+        int modeDataLen = BinaryPrimitives.ReadUInt16BigEndian(modeSense10Buf.Slice(0, 2));
+        int validLen = Math.Min(modeSense10Buf.Length, modeDataLen + 2);
+        if (validLen < 12)
+            return null;
+
+        int blockDescLen = BinaryPrimitives.ReadUInt16BigEndian(modeSense10Buf.Slice(6, 2));
+        int pageOff = 8 + blockDescLen;
+        if (pageOff + 4 > validLen)
+            return null;
+
+        if ((modeSense10Buf[pageOff] & 0x3F) != 0x01)
+            return null;
+
+        int pageLen = modeSense10Buf[pageOff + 1] + 2;
+        if (pageLen < 4 || pageOff + pageLen > validLen)
+            return null;
+
+        int totalSelectLen = 8 + pageLen;
+        var originalSelect = new byte[totalSelectLen];
+        modeSense10Buf.Slice(pageOff, pageLen).CopyTo(originalSelect.AsSpan(8));
+        originalSelect[8] &= 0x3F; // Clear PS (Parameters Saveable) bit for MODE SELECT (10)
+        savedOriginalModeSelect = originalSelect;
+
+        var modified = (byte[])originalSelect.Clone();
+        byte origFlags = modified[8 + 2];
+        // Preserve AWRE (0x80), clear ARRE (0x40) during raw recovery, and apply requested EC flags:
+        modified[8 + 2] = variant switch
+        {
+            0 => (byte)((origFlags & 0x80) | 0x20 | 0x01), // TB | DCR
+            1 => (byte)((origFlags & 0x80) | 0x20),        // TB only
+            _ => (byte)(origFlags & ~0x40)                 // Keep drive EC flags, clear ARRE
+        };
+        modified[8 + 3] = 0x00; // Read Retry Count = 0
+        return modified;
+    }
+
+    private static bool TryDisableHardwareErrorCorrection(SafeFileHandle handle, out byte[]? savedModeSelect)
+    {
+        savedModeSelect = null;
+        var senseBuf = new byte[64];
+        byte[] senseCdb = [0x5A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)senseBuf.Length, 0x00];
+        if (!SendScsiCommand(handle, senseCdb, senseBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
+            return false;
+
+        for (int variant = 0; variant <= 2; variant++)
+        {
+            byte[]? selectBuf = BuildDisabledEcModeSelectBuffer(senseBuf, variant, out var original);
+            if (selectBuf is null || original is null)
+                return false;
+
+            int totalLen = selectBuf.Length;
+            byte[] selectCdb = [0x55, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)(totalLen >> 8), (byte)(totalLen & 0xFF), 0x00];
+            if (SendScsiCommand(handle, selectCdb, selectBuf, SCSI_IOCTL_DATA_OUT, 10, out _, out _, out _))
+            {
+                savedModeSelect = original;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void RestoreHardwareErrorCorrection(SafeFileHandle handle, byte[]? savedModeSelect)
+    {
+        if (savedModeSelect is null || savedModeSelect.Length < 12)
+            return;
+
+        try
+        {
+            int totalLen = savedModeSelect.Length;
+            byte[] selectCdb = [0x55, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)(totalLen >> 8), (byte)(totalLen & 0xFF), 0x00];
+            SendScsiCommand(handle, selectCdb, savedModeSelect, SCSI_IOCTL_DATA_OUT, 10, out _, out _, out _);
+        }
+        catch
+        {
+            // Best-effort restore on close.
+        }
+    }
+
+    public static IDisposable EnterHardwareErrorCorrectionScope(string? driveLetter, bool disableHardwareEc)
+    {
+        if (!disableHardwareEc || string.IsNullOrWhiteSpace(driveLetter))
+            return NullDisposable.Instance;
+
+        try
+        {
+            var handle = OpenDrive(driveLetter, writeAccess: true);
+            if (handle.IsInvalid)
+            {
+                handle.Dispose();
+                return NullDisposable.Instance;
+            }
+
+            if (!TryDisableHardwareErrorCorrection(handle, out var savedPage01))
+            {
+                handle.Dispose();
+                return NullDisposable.Instance;
+            }
+
+            return new HardwareEcScope(handle, savedPage01);
+        }
+        catch
+        {
+            return NullDisposable.Instance;
+        }
+    }
+
+    private sealed class NullDisposable : IDisposable
+    {
+        public static readonly NullDisposable Instance = new();
+        public void Dispose() { }
+    }
+
+    private sealed class HardwareEcScope(SafeFileHandle handle, byte[]? savedPage01) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            try
+            {
+                RestoreHardwareErrorCorrection(handle, savedPage01);
+            }
+            finally
+            {
+                handle.Dispose();
+            }
+        }
+    }
+
+    public static BadSectorTracker GrabDataSectorsToFile(
         string driveLetter,
         string outputPath,
         long startLba,
@@ -740,7 +895,8 @@ internal static class ScsiOpticalDevice
         int retries,
         bool ignoreBadBlocks,
         IProgress<BurnProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool disableHardwareEc = false)
     {
         using var handle = OpenDrive(driveLetter, writeAccess: true);
         if (handle.IsInvalid)
@@ -760,54 +916,88 @@ internal static class ScsiOpticalDevice
         if (sectorCount <= 0)
             throw new InvalidOperationException("Unable to determine disc sector count.");
 
+        byte[]? savedPage01 = null;
+        if (disableHardwareEc)
+            TryDisableHardwareErrorCorrection(handle, out savedPage01);
+
         const int chunkSectors = 32; // 64 KB per SCSI READ(10)
+        int singleSectorAttempts = GetMaxReadAttempts(retries);
         var buffer = new byte[chunkSectors * DataSectorSize];
         var singleSector = new byte[DataSectorSize];
+        var tracker = new BadSectorTracker();
         var sw = Stopwatch.StartNew();
 
         var dir = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.SequentialScan);
-        long readSoFar = 0;
-        int lastPct = -1;
-
-        while (readSoFar < sectorCount)
+        bool completed = false;
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            int toRead = (int)Math.Min(chunkSectors, sectorCount - readSoFar);
-            long lba = startLba + readSoFar;
+            using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.SequentialScan);
+            long readSoFar = 0;
+            int lastPct = -1;
+            int lastReportedErrors = 0;
 
-            bool ok = TryReadSectors10(handle, (uint)lba, (ushort)toRead, buffer, Math.Max(1, retries));
-            if (ok)
+            while (readSoFar < sectorCount)
             {
-                output.Write(buffer, 0, toRead * DataSectorSize);
-            }
-            else
-            {
-                // Fall back to sector-by-sector recovery
-                for (int s = 0; s < toRead; s++)
+                ct.ThrowIfCancellationRequested();
+                int toRead = (int)Math.Min(chunkSectors, sectorCount - readSoFar);
+                long lba = startLba + readSoFar;
+
+                // Try 1 fast multi-sector read; if any sector in the chunk fails, step through
+                // individual sectors using the exact configured retry count (1 + retries).
+                bool ok = TryReadSectors10(handle, (uint)lba, (ushort)toRead, buffer, maxAttempts: 1);
+                if (ok)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    if (!TryReadSectors10(handle, (uint)(lba + s), 1, singleSector, Math.Max(1, retries)))
+                    output.Write(buffer, 0, toRead * DataSectorSize);
+                }
+                else
+                {
+                    for (int s = 0; s < toRead; s++)
                     {
-                        if (!ignoreBadBlocks)
-                            throw new IOException($"Unreadable sector at LBA {lba + s}.");
-                        Array.Clear(singleSector, 0, singleSector.Length);
+                        ct.ThrowIfCancellationRequested();
+                        long sectorLba = lba + s;
+                        if (!TryReadSectors10(handle, (uint)sectorLba, 1, singleSector, singleSectorAttempts))
+                        {
+                            if (!ignoreBadBlocks)
+                                throw new IOException($"Unreadable sector at LBA {sectorLba} after {singleSectorAttempts} attempt(s).");
+                            Array.Clear(singleSector, 0, singleSector.Length);
+                            tracker.RecordBadSector(sectorLba);
+                        }
+                        output.Write(singleSector, 0, DataSectorSize);
                     }
-                    output.Write(singleSector, 0, DataSectorSize);
+                }
+
+                readSoFar += toRead;
+                int pct = (int)Math.Clamp(readSoFar * 100L / sectorCount, 0, 100);
+                if (pct != lastPct || tracker.BadSectorCount != lastReportedErrors)
+                {
+                    lastPct = pct;
+                    lastReportedErrors = tracker.BadSectorCount;
+                    TimeSpan eta = readSoFar > 0 && sw.Elapsed.TotalSeconds > 0.2
+                        ? TimeSpan.FromSeconds((sectorCount - readSoFar) / (readSoFar / sw.Elapsed.TotalSeconds))
+                        : TimeSpan.Zero;
+                    string errSuffix = tracker.BadSectorCount > 0
+                        ? $" (Read errors: {tracker.BadSectorCount})"
+                        : string.Empty;
+                    progress?.Report(new BurnProgress(
+                        BurnPhase.Grabbing,
+                        pct,
+                        TimeRemaining: eta,
+                        Message: $"Reading disc... {pct}%{errSuffix}",
+                        ReadErrors: tracker.BadSectorCount));
                 }
             }
 
-            readSoFar += toRead;
-            int pct = (int)Math.Clamp(readSoFar * 100L / sectorCount, 0, 100);
-            if (pct != lastPct)
+            completed = true;
+            return tracker;
+        }
+        finally
+        {
+            RestoreHardwareErrorCorrection(handle, savedPage01);
+            if (!completed)
             {
-                lastPct = pct;
-                TimeSpan eta = readSoFar > 0 && sw.Elapsed.TotalSeconds > 0.2
-                    ? TimeSpan.FromSeconds((sectorCount - readSoFar) / (readSoFar / sw.Elapsed.TotalSeconds))
-                    : TimeSpan.Zero;
-                progress?.Report(new BurnProgress(BurnPhase.Grabbing, pct, TimeRemaining: eta, Message: $"Reading disc... {pct}%"));
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
             }
         }
     }
@@ -873,7 +1063,7 @@ internal static class ScsiOpticalDevice
         }
     }
 
-    private static bool TryReadSectors10(SafeFileHandle handle, uint lba, ushort count, byte[] buffer, int retries)
+    private static bool TryReadSectors10(SafeFileHandle handle, uint lba, ushort count, byte[] buffer, int maxAttempts)
     {
         byte[] cdb =
         [
@@ -884,11 +1074,13 @@ internal static class ScsiOpticalDevice
             0x00
         ];
 
-        for (int attempt = 0; attempt < retries; attempt++)
+        int attempts = Math.Max(1, maxAttempts);
+        for (int attempt = 0; attempt < attempts; attempt++)
         {
             if (SendScsiCommand(handle, cdb, buffer, SCSI_IOCTL_DATA_IN, 30, out _, out _, out _))
                 return true;
-            Thread.Sleep(25);
+            if (attempt + 1 < attempts)
+                Thread.Sleep(25);
         }
         return false;
     }

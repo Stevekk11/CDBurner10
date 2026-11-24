@@ -22,6 +22,7 @@ public sealed partial class DvdToMp4Page : Page
     private bool _isBusy;
     private bool _initialized;
     private bool _navigatedWithFile;
+    private string? _pendingNavigatedDriveLetter;
     private string _lastOutput = string.Empty;
     private string? _autoDestination;
     private bool _sourceCssProtected;
@@ -41,9 +42,26 @@ public sealed partial class DvdToMp4Page : Page
         base.OnNavigatedTo(e);
         if (!_isBusy && e.Parameter is string source && !string.IsNullOrWhiteSpace(source))
         {
-            _navigatedWithFile = true;
-            SourceModeRadio.SelectedIndex = 1;
-            SourcePathBox.Text = source;
+            if (DvdVideoConverter.TryExtractDriveLetter(source, out char drvLetter))
+            {
+                _pendingNavigatedDriveLetter = drvLetter.ToString();
+                _navigatedWithFile = false;
+                SourceModeRadio.SelectedIndex = 0;
+                if (_initialized)
+                {
+                    PopulateDrives();
+                    UpdateSourceModeUi();
+                }
+            }
+            else
+            {
+                _pendingNavigatedDriveLetter = null;
+                _navigatedWithFile = true;
+                SourceModeRadio.SelectedIndex = 1;
+                SourcePathBox.Text = source;
+                if (_initialized)
+                    UpdateSourceModeUi();
+            }
         }
     }
 
@@ -81,12 +99,16 @@ public sealed partial class DvdToMp4Page : Page
     private void PopulateDrives()
     {
         var drives = AppServices.Current.Drives;
-        var prev = SourceDriveComboBox.SelectedItem as DriveModel ?? AppServices.Current.SelectedDrive;
+        string? desiredLetter = _pendingNavigatedDriveLetter
+                                ?? (SourceDriveComboBox.SelectedItem as DriveModel)?.Letter
+                                ?? AppServices.Current.SelectedDrive?.Letter;
+        _pendingNavigatedDriveLetter = null;
 
         SourceDriveComboBox.ItemsSource = null;
         SourceDriveComboBox.ItemsSource = drives;
         SourceDriveComboBox.DisplayMemberPath = nameof(DriveModel.DisplayName);
-        SourceDriveComboBox.SelectedItem = drives.FirstOrDefault(d => d.Letter == prev?.Letter) ?? drives.FirstOrDefault();
+        SourceDriveComboBox.SelectedItem = drives.FirstOrDefault(d =>
+            string.Equals(d.Letter, desiredLetter, StringComparison.OrdinalIgnoreCase)) ?? drives.FirstOrDefault();
 
         if (IsOpticalMode)
             _ = UpdateSelectedDriveAsync();
@@ -179,16 +201,27 @@ public sealed partial class DvdToMp4Page : Page
 
         _sourceCssProtected = info.IsCssProtected;
         string protection = info.IsCssProtected ? " • CSS protected" : string.Empty;
-        string unfinalized = info.IsNextSessionAllowed && info.Sessions.Count == 0 && info.UsedSizeBytes > 0
-            ? " • Unfinalized disc (raw MPEG-2 recovery supported)"
-            : string.Empty;
-        DriveStatusText.Text = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used{protection}{unfinalized}";
+        string baseDriveStatus = $"{info.DiscTypeDescription} • {FormatHelper.FormatBytes(info.UsedSizeBytes)} used{protection}";
+        DriveStatusText.Text = baseDriveStatus;
 
         if (!string.IsNullOrWhiteSpace(drive.Letter))
         {
             string driveSource = DvdVideoConverter.GetDriveSourcePath(drive.Letter);
             UpdateDefaultDestination();
-            await ProbeSourceAsync(driveSource);
+            var probed = await ProbeSourceAsync(driveSource);
+            if (probed is { IsUnfinalizedRaw: true } && IsOpticalMode)
+            {
+                long firstSec = probed.UnfinalizedScan?.FirstMpegSector ?? 0;
+                DriveStatusText.Text = $"{baseDriveStatus} • Unfinalized DVD (raw MPEG-2 recovery from sector {firstSec:N0})";
+                ShowStatus(
+                    InfoBarSeverity.Informational,
+                    "Unfinalized DVD Recovery Mode",
+                    $"No VIDEO_TS filesystem was found on this disc. Raw MPEG-2 video sectors (starting at LBA {firstSec:N0}) will be recovered and converted to MP4 in a single pass.");
+            }
+            else if (StatusInfoBar.Title == "Unfinalized DVD Recovery Mode")
+            {
+                StatusInfoBar.IsOpen = false;
+            }
         }
     }
 
@@ -224,7 +257,8 @@ public sealed partial class DvdToMp4Page : Page
                 }
                 if (item is StorageFile file &&
                     !string.IsNullOrWhiteSpace(file.Path) &&
-                    file.Path.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
+                    (file.Path.EndsWith(".iso", StringComparison.OrdinalIgnoreCase) ||
+                     DvdVideoConverter.IsMpegStreamFile(file.Path)))
                 {
                     SourceModeRadio.SelectedIndex = 1;
                     SourcePathBox.Text = file.Path;
@@ -266,7 +300,7 @@ public sealed partial class DvdToMp4Page : Page
 
     private async void BrowseIsoButton_Click(object sender, RoutedEventArgs e)
     {
-        var path = await FilePickerHelper.PickSingleFileAsync([".iso"]);
+        var path = await FilePickerHelper.PickSingleFileAsync([".iso", ".mpg", ".mpeg"]);
         if (!string.IsNullOrWhiteSpace(path))
             SourcePathBox.Text = path;
     }
@@ -330,13 +364,16 @@ public sealed partial class DvdToMp4Page : Page
 
             _info = info;
             PopulateTracks(info);
+            TitleNumberBox.IsEnabled = !info.IsUnfinalizedRaw && !info.IsPreWalkedStream && !_isBusy;
             string titleLabel = info.IsUnfinalizedRaw
                 ? "Unfinalized DVD (raw MPEG-2 recovery)"
-                : titleNumber > 0
-                    ? $"Title {info.TitleNumber}"
-                    : info.TotalTitles > 1
-                        ? $"Main title (Title {info.TitleNumber} of {info.TotalTitles})"
-                        : $"Main title (Title {info.TitleNumber})";
+                : info.IsPreWalkedStream
+                    ? "MPEG-2 Video Stream"
+                    : titleNumber > 0
+                        ? $"Title {info.TitleNumber}"
+                        : info.TotalTitles > 1
+                            ? $"Main title (Title {info.TitleNumber} of {info.TotalTitles})"
+                            : $"Main title (Title {info.TitleNumber})";
             string durPrefix = info.IsUnfinalizedRaw ? "~" : string.Empty;
             DvdInfoText.Text =
                 $"{titleLabel}: {durPrefix}{FormatHelper.FormatDuration(info.Duration)} • {info.Width}×{info.Height} • " +
@@ -686,7 +723,7 @@ public sealed partial class DvdToMp4Page : Page
         EncoderComboBox.IsEnabled = !busy;
         StereoDownmixCheckBox.IsEnabled = !busy;
         DeinterlaceCheckBox.IsEnabled = !busy;
-        TitleNumberBox.IsEnabled = !busy;
+        TitleNumberBox.IsEnabled = !busy && _info is not { IsUnfinalizedRaw: true } and not { IsPreWalkedStream: true };
     }
 
     private void ShowStatus(InfoBarSeverity severity, string title, string message)

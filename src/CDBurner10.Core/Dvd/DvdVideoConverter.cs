@@ -50,6 +50,9 @@ public sealed record DvdVideoInfo(
     /// <summary>True when the disc is an unfinalized DVD-R/RW with no UDF/VIDEO_TS.IFO and is recovered via raw MPEG-2 sectors.</summary>
     public bool IsUnfinalizedRaw { get; init; }
 
+    /// <summary>True when the source is already a standalone MPEG-2 Program Stream (.mpg / .mpeg) file.</summary>
+    public bool IsPreWalkedStream { get; init; }
+
     /// <summary>Scan metadata for unfinalized DVD raw sector recovery.</summary>
     public UnfinalizedDvdScanResult? UnfinalizedScan { get; init; }
 }
@@ -437,10 +440,20 @@ public static class DvdVideoConverter
     public static Task<DvdVideoInfo> ProbeAsync(string source, CancellationToken ct = default) =>
         ProbeAsync(source, titleNumber: 0, ct);
 
+    public static bool IsMpegStreamFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        string ext = Path.GetExtension(path.Trim());
+        return ext.Equals(".mpg", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals(".mpeg", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals(".m2p", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static async Task<DvdVideoInfo> ProbeAsync(string source, int titleNumber, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(source))
-            throw new InvalidOperationException("Select an optical drive, a DVD-Video ISO file, or a VIDEO_TS folder.");
+            throw new InvalidOperationException("Select an optical drive, a DVD-Video ISO/MPG file, or a VIDEO_TS folder.");
 
         string ffprobe = FindFfprobe() ?? throw new InvalidOperationException(InstallHint);
         string normalized = NormalizeSource(source);
@@ -460,6 +473,33 @@ public static class DvdVideoConverter
         }
 
         ValidateSource(source);
+
+        // Standalone MPEG-2 Program Stream (.mpg / .mpeg) extracted via Main Movie or Unfinalized DVD recovery:
+        if (!TryExtractDriveLetter(normalized, out _) && IsMpegStreamFile(normalized) && File.Exists(normalized))
+        {
+            var mpegArgs = new[]
+            {
+                "-v", "error",
+                "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
+                "-of", "json",
+                normalized
+            };
+            var mpegRes = await RunCaptureAsync(ffprobe, mpegArgs, ct);
+            if (mpegRes.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(mpegRes.StdErr)
+                        ? "ffprobe could not read the MPEG-2 video stream."
+                        : mpegRes.StdErr.Trim());
+            }
+
+            return ParseProbeJson(mpegRes.StdOut) with
+            {
+                TitleNumber = 1,
+                TotalTitles = 1,
+                IsPreWalkedStream = true
+            };
+        }
 
         // ffmpeg's dvdvideo demuxer defaults -title 0 to Title 1 (which is often a 0-second
         // dummy/padding title on commercial DVDs). Enumerate titles via libdvdnav first so
@@ -908,13 +948,13 @@ public static class DvdVideoConverter
 
         string? tempWalkedMpg = null;
         string inputForFfmpeg = normalizedSource;
-        bool isPreWalked = false;
+        bool isPreWalked = info.IsPreWalkedStream || (!TryExtractDriveLetter(normalizedSource, out _) && IsMpegStreamFile(normalizedSource));
         char rawDriveLetter = '\0';
         bool isPipedUnfinalized = info.IsUnfinalizedRaw && TryExtractDriveLetter(normalizedSource, out rawDriveLetter);
 
         try
         {
-            if (!isPipedUnfinalized && info.UseNavigatedWalker && DvdNavigationWalker.IsAvailable)
+            if (!isPipedUnfinalized && !isPreWalked && info.UseNavigatedWalker && DvdNavigationWalker.IsAvailable)
             {
                 tempWalkedMpg = Path.Combine(Path.GetTempPath(), $"cdburner10_dvdnav_{Guid.NewGuid():N}.mpg");
                 var walkProgress = new Progress<BurnProgress>(bp =>

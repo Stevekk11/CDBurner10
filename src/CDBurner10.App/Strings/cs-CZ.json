@@ -245,5 +245,21 @@
   "Convert BIN, NRG (Nero), or B5I (BlindWrite) disc images into standard ISO9660 .iso files.": "Převeďte obrazy BIN, NRG (Nero) nebo B5I (BlindWrite) do standardních souborů ISO9660 .iso.",
   "Erase rewritable CD-RW, DVD±RW, DVD-RAM, or BD-RE discs quickly or securely.": "Rychle nebo bezpečně vymažte přepisovatelné disky CD-RW, DVD±RW, DVD-RAM nebo BD-RE.",
   "Version 10.5.3 (64-bit) • Open-Source Optical Media Suite": "Verze 10.5.3 (64bitová) • Open-source sada pro optická média",
-  "An independent, 100% open-source .NET 10 + WinUI 3 (Windows App SDK) optical media suite for Windows, delivering full CD, DVD, HD-DVD, and Blu-ray authoring, audio ripping, and GPU-accelerated DVD to MP4 conversion with native Windows 11 Fluent Design.": "Nezávislá, 100% open-source sada pro optická média postavená na .NET 10 + WinUI 3 pro Windows s plnou podporou vypalování CD, DVD, HD-DVD a Blu-ray, extrakce zvuku a GPU akcelerovaného převodu DVD na MP4 v nativním designu Windows 11."
+  "An independent, 100% open-source .NET 10 + WinUI 3 (Windows App SDK) optical media suite for Windows, delivering full CD, DVD, HD-DVD, and Blu-ray authoring, audio ripping, and GPU-accelerated DVD to MP4 conversion with native Windows 11 Fluent Design.": "Nezávislá, 100% open-source sada pro optická média postavená na .NET 10 + WinUI 3 pro Windows s plnou podporou vypalování CD, DVD, HD-DVD a Blu-ray, extrakce zvuku a GPU akcelerovaného převodu DVD na MP4 v nativním designu Windows 11.",
+  "Hard Disc (Save Image / Video Stream)": "Pevný disk (Uložit obraz / video proud)",
+  "DVD-Video Grab Mode": "Režim čtení DVD-Video",
+  "Full Disc Image (.iso) — Linear sector copy": "Úplný obraz disku (.iso) — Lineární kopie sektorů",
+  "Main Movie / Title Stream (.mpg) — Navigated (ARccOS safe)": "Hlavní film / titul (.mpg) — Navigovaný režim (ARccOS)",
+  "DVD Title": "Titul DVD",
+  "Output Image File (.iso)": "Výstupní soubor obrazu (.iso)",
+  "Output Video Stream (.mpg)": "Výstupní video proud (.mpg)",
+  "Open in DVD to MP4...": "Otevřít v DVD na MP4...",
+  "Convert to MP4...": "Převést na MP4...",
+  "Extract Video (.mpg)": "Extrahovat video (.mpg)",
+  "Grab Disc to Image": "Uložit disk do obrazu",
+  "ISO / MPG File or VIDEO_TS Folder": "Soubor ISO / MPG nebo složka VIDEO_TS",
+  "DVD-Video ISO, MPG stream, or VIDEO_TS folder": "DVD-Video ISO, MPG proud nebo složka VIDEO_TS",
+  "File...": "Soubor...",
+  "Recover scratched sectors (retry & pad unreadable frames)": "Obnovit poškrábané sektory (opakovat čtení a doplnit nečitelné rámce)",
+  "Cancel Rip": "Zrušit extrakci"
 }

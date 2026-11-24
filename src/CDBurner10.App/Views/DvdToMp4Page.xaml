@@ -34,7 +34,7 @@
                         SelectedIndex="0"
                         SelectionChanged="SourceModeRadio_SelectionChanged">
                         <x:String>Optical Drive (Direct single-pass)</x:String>
-                        <x:String>ISO File / VIDEO_TS Folder</x:String>
+                        <x:String>ISO / MPG File or VIDEO_TS Folder</x:String>
                     </RadioButtons>
 
                     <!-- Direct Optical Drive Panel -->
@@ -82,13 +82,13 @@
                         <TextBox
                             x:Name="SourcePathBox"
                             Grid.Column="0"
-                            Header="DVD-Video ISO or VIDEO_TS folder"
-                            PlaceholderText="Select or drop a .iso file or VIDEO_TS folder..."
+                            Header="DVD-Video ISO, MPG stream, or VIDEO_TS folder"
+                            PlaceholderText="Select or drop a .iso / .mpg file or VIDEO_TS folder..."
                             TextChanged="SourcePathBox_TextChanged" />
                         <Button
                             x:Name="BrowseIsoButton"
                             Grid.Column="1"
-                            Content="ISO..."
+                            Content="File..."
                             VerticalAlignment="Bottom"
                             Click="BrowseIsoButton_Click" />
                         <Button

@@ -21,7 +21,53 @@ public sealed record BurnProgress(
     TimeSpan TimeRemaining = default,
     int CurrentTrack = 0,
     int TotalTracks = 0,
-    string Message = "");
+    string Message = "",
+    int ReadErrors = 0);
+
+public readonly record struct LbaRange(long StartLba, long EndLba)
+{
+    public long SectorCount => EndLba - StartLba + 1;
+
+    public override string ToString() =>
+        StartLba == EndLba
+            ? $"LBA {StartLba}"
+            : $"LBA {StartLba}..{EndLba} ({SectorCount})";
+}
+
+public sealed class BadSectorTracker
+{
+    private readonly List<LbaRange> _ranges = [];
+
+    public int BadSectorCount { get; private set; }
+
+    public IReadOnlyList<LbaRange> Ranges => _ranges;
+
+    public void RecordBadSector(long lba)
+    {
+        BadSectorCount++;
+        if (_ranges.Count > 0 && _ranges[^1].EndLba + 1 == lba)
+        {
+            var last = _ranges[^1];
+            _ranges[^1] = new LbaRange(last.StartLba, lba);
+        }
+        else if (_ranges.Count == 0 || _ranges[^1].EndLba != lba)
+        {
+            _ranges.Add(new LbaRange(lba, lba));
+        }
+    }
+
+    public string FormatSummary(int maxRanges = 10)
+    {
+        if (_ranges.Count == 0)
+            return "none";
+
+        var shown = _ranges.Take(Math.Max(1, maxRanges)).Select(r => r.ToString());
+        string joined = string.Join(", ", shown);
+        return _ranges.Count > maxRanges
+            ? $"{joined}, ... (+{_ranges.Count - maxRanges} more range(s))"
+            : joined;
+    }
+}
 
 public sealed record EraseProgress(
     int Percent,

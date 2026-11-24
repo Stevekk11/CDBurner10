@@ -9,7 +9,8 @@
     CloseButtonText="Close"
     DefaultButton="Primary"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
-    SecondaryButtonClick="ContentDialog_SecondaryButtonClick">
+    SecondaryButtonClick="ContentDialog_SecondaryButtonClick"
+    Closing="ContentDialog_Closing">
     <ContentDialog.Resources>
         <x:Double x:Key="ContentDialogMaxWidth">760</x:Double>
     </ContentDialog.Resources>
@@ -35,6 +36,7 @@
                 HorizontalAlignment="Stretch"
                 Header="Read Speed" />
             <Button
+                x:Name="RefreshButton"
                 Grid.Column="2"
                 Content="Refresh"
                 VerticalAlignment="Bottom"
@@ -61,7 +63,30 @@
             </ListView.ItemTemplate>
         </ListView>
 
+        <CheckBox
+            x:Name="RecoverBadSectorsCheckBox"
+            Content="Recover scratched sectors (retry &amp; pad unreadable frames)"
+            IsChecked="True" />
+
         <ProgressBar x:Name="RipProgressBar" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" />
-        <TextBlock x:Name="RipStatusText" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+                x:Name="RipStatusText"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                TextWrapping="Wrap"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Button
+                x:Name="CancelRipButton"
+                Grid.Column="1"
+                Content="Cancel Rip"
+                Visibility="Collapsed"
+                Click="CancelRipButton_Click" />
+        </Grid>
     </StackPanel>
 </ContentDialog>

@@ -42,6 +42,7 @@
                             HorizontalAlignment="Stretch"
                             Header="Read Speed" />
                         <Button
+                            x:Name="RefreshSourceButton"
                             Grid.Column="2"
                             Content="Refresh"
                             VerticalAlignment="Bottom"
@@ -71,7 +72,7 @@
                         SelectedIndex="0"
                         SelectionChanged="TargetModeRadio_SelectionChanged">
                         <RadioButton Content="Optical Drive (Copy Disc)" />
-                        <RadioButton Content="Hard Disc (Save as ISO Image)" />
+                        <RadioButton Content="Hard Disc (Save Image / Video Stream)" />
                     </RadioButtons>
 
                     <!-- Optical Target Options -->
@@ -109,8 +110,34 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <!-- Hard Disc ISO Target Options -->
+                    <!-- Hard Disc ISO / MPG Target Options -->
                     <StackPanel x:Name="HardDiscTargetPanel" Spacing="12" Visibility="Collapsed">
+                        <StackPanel x:Name="DvdReadModePanel" Spacing="10" Visibility="Collapsed">
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    x:Name="DvdGrabModeComboBox"
+                                    Grid.Column="0"
+                                    HorizontalAlignment="Stretch"
+                                    Header="DVD-Video Grab Mode"
+                                    SelectedIndex="0"
+                                    SelectionChanged="DvdGrabModeComboBox_SelectionChanged">
+                                    <ComboBoxItem Content="Full Disc Image (.iso) — Linear sector copy" />
+                                    <ComboBoxItem Content="Main Movie / Title Stream (.mpg) — Navigated (ARccOS safe)" />
+                                </ComboBox>
+                                <ComboBox
+                                    x:Name="DvdTitleComboBox"
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Stretch"
+                                    Header="DVD Title"
+                                    DisplayMemberPath="DisplayName"
+                                    Visibility="Collapsed" />
+                            </Grid>
+                        </StackPanel>
+
                         <Grid ColumnSpacing="10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -122,13 +149,15 @@
                                 Header="Output Image File (.iso)"
                                 PlaceholderText="Choose destination path for disc image..." />
                             <Button
+                                x:Name="BrowseTargetImageButton"
                                 Grid.Column="1"
                                 Content="Browse..."
                                 VerticalAlignment="Bottom"
                                 Click="BrowseTargetImageButton_Click" />
                         </Grid>
-                        <CheckBox x:Name="DvdVideoGrabCheckBox" Content="Grab as DVD-Video disc image" />
+
                         <TextBlock
+                            x:Name="HardDiscHintText"
                             Text="CSS-protected DVD-Video discs are decrypted automatically with the bundled FOSS libdvdcss library and saved as a playable ISO."
                             Style="{StaticResource CaptionTextBlockStyle}"
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -183,6 +212,11 @@
                     Content="Cancel"
                     IsEnabled="False"
                     Click="CancelButton_Click" />
+                <Button
+                    x:Name="OpenInDvdToMp4Button"
+                    Content="Open in DVD to MP4..."
+                    Visibility="Collapsed"
+                    Click="OpenInDvdToMp4Button_Click" />
                 <Button
                     x:Name="ConvertToMp4Button"
                     Content="Convert to MP4..."
