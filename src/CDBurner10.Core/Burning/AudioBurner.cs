@@ -172,12 +172,6 @@ public sealed class AudioBurner
             tao.put_Recorder(recorder);
             tao.put_ClientName("CDBurner10");
             tao.put_BufferUnderrunFreeDisabled(false);
-            tao.put_DoNotFinalizeMedia(!options.FinalizeDisc);
-
-            if (options.WriteSpeedKBps > 0)
-            {
-                try { tao.SetWriteSpeed(Math.Max(1, options.WriteSpeedKBps / 2), false); } catch (COMException) { }
-            }
 
             if (options.TestBurn)
             {
@@ -216,6 +210,13 @@ public sealed class AudioBurner
             {
                 tao.PrepareMedia();
                 mediaPrepared = true;
+
+                // IMAPI2 TrackAtOnce requires PrepareMedia() before setting DoNotFinalizeMedia or write speed
+                tao.put_DoNotFinalizeMedia(!options.FinalizeDisc);
+                if (options.WriteSpeedKBps > 0)
+                {
+                    try { tao.SetWriteSpeed(Math.Max(1, options.WriteSpeedKBps / 2), false); } catch (COMException) { }
+                }
 
                 for (int i = 0; i < wavPaths.Count; i++)
                 {
