@@ -2,7 +2,7 @@
     x:Class="CDBurner10.App.Views.BluRayVideoPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer Padding="28,20" HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer Padding="28,20" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
         <StackPanel MaxWidth="980" Spacing="18">
             <StackPanel Spacing="4">
                 <TextBlock Text="Burn Video Blu-ray" Style="{StaticResource TitleTextBlockStyle}" />
