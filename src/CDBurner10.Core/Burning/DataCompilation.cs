@@ -352,4 +352,63 @@ public sealed class DataCompilation
 
         return PathHelper.ReplaceInvalidFileNameChars(expanded);
     }
+
+    /// <summary>
+    /// Refreshes file sizes, timestamps, and newly added files in source-backed folders
+    /// when AppSettings.DataUpdateAutomatically is enabled.
+    /// </summary>
+    public ItemAddError[] RefreshFromSourcePaths()
+    {
+        var errors = new List<ItemAddError>();
+        RefreshFolderRecursive(RootFolder, errors);
+        return errors.ToArray();
+    }
+
+    private void RefreshFolderRecursive(VirtualFolder folder, List<ItemAddError> errors)
+    {
+        foreach (var file in folder.Files.ToList())
+        {
+            if (string.IsNullOrWhiteSpace(file.SourcePath)) continue;
+            try
+            {
+                if (!File.Exists(file.SourcePath))
+                {
+                    errors.Add(new ItemAddError(file.SourcePath, $"Source file no longer exists: '{file.SourcePath}'"));
+                    continue;
+                }
+
+                var fi = new FileInfo(file.SourcePath);
+                file.FileSizeBytes = fi.Length;
+                file.ModificationDate = fi.LastWriteTime;
+            }
+            catch (Exception ex)
+            {
+                errors.Add(new ItemAddError(file.SourcePath, ex.Message, ex));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(folder.SourcePath) && Directory.Exists(folder.SourcePath))
+        {
+            try
+            {
+                foreach (var diskFile in Directory.EnumerateFiles(folder.SourcePath))
+                {
+                    string name = Path.GetFileName(diskFile);
+                    if (folder.FindFile(name) is null)
+                    {
+                        folder.Files.Add(new VirtualFile(diskFile, name, folder));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add(new ItemAddError(folder.SourcePath, ex.Message, ex));
+            }
+        }
+
+        foreach (var sub in folder.Folders.ToList())
+        {
+            RefreshFolderRecursive(sub, errors);
+        }
+    }
 }

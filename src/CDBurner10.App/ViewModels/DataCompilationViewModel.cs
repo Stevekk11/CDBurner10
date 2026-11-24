@@ -164,6 +164,28 @@ public sealed partial class DataCompilationViewModel : ObservableObject
         var errors = new List<ItemAddError>();
         string targetPath = CurrentFolder.FullVirtualPath;
         Func<string, bool>? filter = BuildFileFilterPredicate();
+        var s = AppServices.Current.Settings.Current;
+        string cacheDir = AppServices.Current.Settings.GetTempDirectory();
+        int maxNameLen = Burner.FileNameMaxLength;
+
+        (string SourcePath, string NameOnDisc) TransformFile(string filePath)
+        {
+            string originalName = Path.GetFileName(filePath);
+            string discName = originalName;
+            if (originalName.Length > maxNameLen)
+            {
+                if (!s.IgnoreFileRenameRequirements)
+                    throw new FileNameTooLongException(originalName, maxNameLen);
+                discName = GenericDataBurner.TruncateDiscFileName(originalName, maxNameLen);
+            }
+
+            string effectivePath = GenericDataBurner.PrepareCachedSourcePath(
+                filePath,
+                s.DataCacheFilesAutomatically,
+                s.DataCacheNetworkFilesAutomatically,
+                cacheDir);
+            return (effectivePath, discName);
+        }
 
         foreach (var path in paths)
         {
@@ -171,19 +193,20 @@ public sealed partial class DataCompilationViewModel : ObservableObject
             {
                 if (Directory.Exists(path))
                 {
-                    var dirErrors = Burner.AddDirectory(path, targetPath, fileFilter: filter);
+                    var dirErrors = Burner.AddDirectory(path, targetPath, fileFilter: filter, fileTransform: TransformFile);
                     errors.AddRange(dirErrors);
                 }
                 else if (File.Exists(path))
                 {
                     if (filter is not null && !filter(path))
                         continue;
-                    Burner.AddFile(path, targetPath);
+                    var (effectivePath, discName) = TransformFile(path);
+                    Burner.AddFile(effectivePath, targetPath, discName);
                 }
             }
             catch (Exception ex)
             {
-                errors.Add(new ItemAddError(path, ex.Message, ex));
+                errors.Add(new ItemAddError(path, ex.Message, ex, maxNameLen));
             }
         }
 
@@ -232,16 +255,21 @@ public sealed partial class DataCompilationViewModel : ObservableObject
     public void ClearCompilation()
     {
         Burner.Clear();
+        AppServices.Current.ApplyDefaultDataBurnerSettings(forceIfNonEmpty: true);
         CurrentFolder = Compilation.RootFolder;
         RefreshAll();
     }
 
     public ItemAddError[] LoadDxp(string dxpPath)
     {
-        var errors = Compilation.Load(dxpPath);
+        var errors = Compilation.Load(dxpPath).ToList();
+        if (AppServices.Current.Settings.Current.DataUpdateAutomatically)
+        {
+            errors.AddRange(Compilation.RefreshFromSourcePaths());
+        }
         CurrentFolder = Compilation.RootFolder;
         RefreshAll();
-        return errors;
+        return errors.ToArray();
     }
 
     public void SaveDxp(string dxpPath)

@@ -63,6 +63,9 @@ public sealed partial class AudioCompilationPage : Page
         AppServices.Current.ActiveCompilationMode = "Audio";
         AppServices.Current.FilesDroppedForAudio += OnExternalFilesDropped;
         ViewModel.Player.StateChanged += OnPlayerStateChanged;
+        AudioPlayerBar.Visibility = AppServices.Current.Settings.Current.AudioShowPlayer
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         ViewModel.RefreshTracks(persist: false);
         _playerTimer.Start();
 

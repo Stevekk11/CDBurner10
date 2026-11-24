@@ -66,6 +66,76 @@ public sealed class GenericDataBurner
         return folder;
     }
 
+    public static string TruncateDiscFileName(string name, int maxLength)
+    {
+        if (string.IsNullOrEmpty(name) || maxLength <= 0 || name.Length <= maxLength)
+            return name;
+
+        string ext = Path.GetExtension(name);
+        if (ext.Length >= maxLength)
+            return name[..maxLength];
+
+        int stemLen = maxLength - ext.Length;
+        return name[..stemLen] + ext;
+    }
+
+    public static bool IsRemovableOrOpticalPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try
+        {
+            string? root = Path.GetPathRoot(path);
+            if (string.IsNullOrWhiteSpace(root) || root.StartsWith(@"\\", StringComparison.Ordinal))
+                return false;
+            var di = new DriveInfo(root);
+            return di.DriveType is DriveType.Removable or DriveType.CDRom;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool IsNetworkPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (path.StartsWith(@"\\", StringComparison.Ordinal))
+            return true;
+        try
+        {
+            string? root = Path.GetPathRoot(path);
+            if (string.IsNullOrWhiteSpace(root)) return false;
+            return new DriveInfo(root).DriveType == DriveType.Network;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static string PrepareCachedSourcePath(
+        string sourceFilePath,
+        bool cacheRemovable,
+        bool cacheNetwork,
+        string? cacheDirectory = null)
+    {
+        bool shouldCache = (cacheRemovable && IsRemovableOrOpticalPath(sourceFilePath)) ||
+                           (cacheNetwork && IsNetworkPath(sourceFilePath));
+        if (!shouldCache || !File.Exists(sourceFilePath))
+            return sourceFilePath;
+
+        string rootDir = string.IsNullOrWhiteSpace(cacheDirectory)
+            ? CDBurner10.Core.Settings.SettingsService.Default.GetTempDirectory()
+            : cacheDirectory;
+        string cacheFolder = Path.Combine(rootDir, "DataCache");
+        Directory.CreateDirectory(cacheFolder);
+
+        string safeName = Path.GetFileName(sourceFilePath);
+        string destPath = Path.Combine(cacheFolder, $"{Guid.NewGuid():N}_{safeName}");
+        File.Copy(sourceFilePath, destPath, overwrite: true);
+        return destPath;
+    }
+
     public VirtualFile AddFile(string sourceFilePath, string targetVirtualFolder = "\\", string? nameOnDisc = null)
     {
         if (!File.Exists(sourceFilePath))
@@ -102,7 +172,8 @@ public sealed class GenericDataBurner
         string sourceDirectory,
         string targetVirtualFolder = "\\",
         string? nameOnDisc = null,
-        Func<string, bool>? fileFilter = null)
+        Func<string, bool>? fileFilter = null,
+        Func<string, (string SourcePath, string NameOnDisc)>? fileTransform = null)
     {
         var errors = new List<ItemAddError>();
         if (!Directory.Exists(sourceDirectory))
@@ -123,7 +194,7 @@ public sealed class GenericDataBurner
             parent.Folders.Add(folder);
         }
 
-        AddDirectoryContentsRecursive(sourceDirectory, folder, fileFilter, errors);
+        AddDirectoryContentsRecursive(sourceDirectory, folder, fileFilter, fileTransform, errors);
         return errors;
     }
 
@@ -131,6 +202,7 @@ public sealed class GenericDataBurner
         string sourceDir,
         VirtualFolder targetFolder,
         Func<string, bool>? fileFilter,
+        Func<string, (string SourcePath, string NameOnDisc)>? fileTransform,
         List<ItemAddError> errors)
     {
         try
@@ -146,9 +218,15 @@ public sealed class GenericDataBurner
                         errors.Add(new ItemAddError(file, "Exceeds 4 GiB ISO9660/Joliet limit.", new FileTooBigException(file, fi.Length)));
                         continue;
                     }
-                    var existing = targetFolder.FindFile(fi.Name);
+
+                    string effectivePath = file;
+                    string discName = fi.Name;
+                    if (fileTransform is not null)
+                        (effectivePath, discName) = fileTransform(file);
+
+                    var existing = targetFolder.FindFile(discName);
                     if (existing is not null) targetFolder.Files.Remove(existing);
-                    targetFolder.Files.Add(new VirtualFile(file, fi.Name, targetFolder));
+                    targetFolder.Files.Add(new VirtualFile(effectivePath, discName, targetFolder));
                 }
                 catch (Exception ex)
                 {
@@ -167,7 +245,7 @@ public sealed class GenericDataBurner
                         subFolder = new VirtualFolder(di.Name, targetFolder, subDir);
                         targetFolder.Folders.Add(subFolder);
                     }
-                    AddDirectoryContentsRecursive(subDir, subFolder, fileFilter, errors);
+                    AddDirectoryContentsRecursive(subDir, subFolder, fileFilter, fileTransform, errors);
                 }
                 catch (Exception ex)
                 {

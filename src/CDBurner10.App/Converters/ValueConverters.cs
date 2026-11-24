@@ -38,9 +38,18 @@ public sealed class StringNullOrEmptyToVisibilityConverter : IValueConverter
 
 public static class FormatHelper
 {
-    public static string FormatBytes(long bytes)
+    public static string FormatBytes(long bytes) =>
+        FormatBytes(bytes, CDBurner10.Core.Settings.SettingsService.Default.Current.OnlyUseSingleUnit);
+
+    public static string FormatBytes(long bytes, bool singleUnitMb)
     {
-        if (bytes < 0) return "0 B";
+        if (bytes < 0) return singleUnitMb ? "0 MB" : "0 B";
+        if (singleUnitMb)
+        {
+            double mb = bytes / (1024.0 * 1024.0);
+            return $"{mb:0.##} MB";
+        }
+
         string[] units = ["B", "KB", "MB", "GB", "TB"];
         double value = bytes;
         int unit = 0;

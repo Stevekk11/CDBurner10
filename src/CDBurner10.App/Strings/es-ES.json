@@ -261,5 +261,8 @@
   "DVD-Video ISO, MPG stream, or VIDEO_TS folder": "ISO de DVD-Vídeo, flujo MPG o carpeta VIDEO_TS",
   "File...": "Archivo...",
   "Recover scratched sectors (retry & pad unreadable frames)": "Recuperar sectores rayados (reintentar y rellenar marcos ilegibles)",
-  "Cancel Rip": "Cancelar extracción"
+  "Cancel Rip": "Cancelar extracción",
+  "Open Logs Folder": "Abrir carpeta de registros",
+  "Open CDBurner10": "Abrir CDBurner10",
+  "Exit": "Salir"
 }

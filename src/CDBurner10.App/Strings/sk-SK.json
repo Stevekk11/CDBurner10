@@ -261,5 +261,8 @@
   "DVD-Video ISO, MPG stream, or VIDEO_TS folder": "DVD-Video ISO, MPG prúd alebo priečinok VIDEO_TS",
   "File...": "Súbor...",
   "Recover scratched sectors (retry & pad unreadable frames)": "Obnoviť poškriabané sektory (opakovať čítanie a doplniť nečitateľné rámce)",
-  "Cancel Rip": "Zrušiť extrakciu"
+  "Cancel Rip": "Zrušiť extrakciu",
+  "Open Logs Folder": "Otvoriť priečinok protokolov",
+  "Open CDBurner10": "Otvoriť CDBurner10",
+  "Exit": "Ukončiť"
 }

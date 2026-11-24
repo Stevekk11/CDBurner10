@@ -15,7 +15,7 @@ public sealed partial class BurnDataDialog : ContentDialog
     private CancellationTokenSource? _cts;
     private bool _isBurning;
 
-    public BurnDataDialog(DataCompilation compilation, DriveModel? preferredDrive)
+    public BurnDataDialog(DataCompilation compilation, DriveModel? preferredDrive, bool autoStart = false)
     {
         InitializeComponent();
         _compilation = compilation;
@@ -52,6 +52,15 @@ public sealed partial class BurnDataDialog : ContentDialog
         }
 
         PopulateSpeeds();
+
+        if (autoStart && DriveComboBox.SelectedItem is DriveModel selectedDrive)
+        {
+            Loaded += async (_, _) =>
+            {
+                if (!_isBurning)
+                    await StartBurnAsync(selectedDrive);
+            };
+        }
     }
 
     private void PopulateSpeeds()
@@ -78,6 +87,13 @@ public sealed partial class BurnDataDialog : ContentDialog
             StatusInfoBar.IsOpen = true;
             return;
         }
+
+        await StartBurnAsync(drive);
+    }
+
+    private async Task StartBurnAsync(DriveModel drive)
+    {
+        if (_isBurning) return;
 
         var burner = _compilation.DataBurner;
         burner.VolumeName = string.IsNullOrWhiteSpace(VolumeLabelBox.Text) ? "Disc" : VolumeLabelBox.Text.Trim();
@@ -124,6 +140,7 @@ public sealed partial class BurnDataDialog : ContentDialog
         {
             log.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             EventLogBox.Text = log.ToString();
+            CDBurner10.Core.Utilities.DiagnosticLogger.Info("BurnData", msg);
         }
 
         AppendLog($"Starting data burn to {drive.DisplayName}...");

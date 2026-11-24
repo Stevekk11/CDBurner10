@@ -285,6 +285,12 @@ public sealed partial class DataCompilationPage : Page
 
     private async void BurnDisc_Click(object sender, RoutedEventArgs e)
     {
-        await AppServices.Current.Dialogs.ShowBurnDataDialogAsync(XamlRoot, ViewModel.Compilation, AppServices.Current.SelectedDrive);
+        bool askForSettings = AppServices.Current.Settings.Current.DataAskForSettings;
+        bool autoStart = !askForSettings && AppServices.Current.SelectedDrive is not null;
+        await AppServices.Current.Dialogs.ShowBurnDataDialogAsync(
+            XamlRoot,
+            ViewModel.Compilation,
+            AppServices.Current.SelectedDrive,
+            autoStart);
     }
 }

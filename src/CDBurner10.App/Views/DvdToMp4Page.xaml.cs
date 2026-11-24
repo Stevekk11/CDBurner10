@@ -592,6 +592,7 @@ public sealed partial class DvdToMp4Page : Page
         {
             log.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             EventLogBox.Text = log.ToString();
+            CDBurner10.Core.Utilities.DiagnosticLogger.Info("DvdToMp4", msg);
         }
 
         AppendLog($"Source: {source} (Title {info.TitleNumber}, {FormatHelper.FormatDuration(info.Duration)}, {info.Width}×{info.Height})");

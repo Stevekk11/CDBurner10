@@ -49,6 +49,29 @@ public sealed partial class AppServices : ObservableObject, IDisposable
         ActiveDataCompilation.Name = string.IsNullOrWhiteSpace(Settings.Current.DataLabel)
             ? "Disc"
             : DataCompilation.ReplaceDiscLabelVariables(Settings.Current.DataLabel);
+        ApplyDefaultDataBurnerSettings(forceIfNonEmpty: true);
+    }
+
+    public void ApplyDefaultDataBurnerSettings(bool forceIfNonEmpty = false)
+    {
+        var burner = ActiveDataCompilation.DataBurner;
+        if (!forceIfNonEmpty && (burner.FileCount > 0 || burner.FolderCount > 0))
+            return;
+
+        var s = Settings.Current;
+        var fs = s.DataFileSystemType == 1 ? DataFileSystem.Udf : DataFileSystem.IsoJoliet;
+        try
+        {
+            burner.SetFileSystemType(fs);
+        }
+        catch
+        {
+            // Keep current FS if a >4GiB file prevents switching to ISO9660
+        }
+
+        burner.UdfVersion = s.DataUdfVersion >= 0
+            ? GenericDataBurner.MapLegacyIntToUdfVersion(s.DataUdfVersion)
+            : UdfVersion.V1_02;
     }
 
     public void InitializeEngines()

@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using CDBurner10.App.Services;
 using CDBurner10.App.Views.Dialogs;
 using CDBurner10.Core.Burning;
 using CDBurner10.Core.Settings;
+using CDBurner10.Core.Utilities;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -94,6 +96,7 @@ public sealed partial class SettingsPage : Page
         CustomTempFolderBox.IsEnabled = s.UseCustomTempFolder;
         s.LoggingEnabled = LoggingEnabledToggle.IsOn;
         if (int.TryParse(GetSelectedTag(LoggingLevelComboBox), out int logLvl)) s.LoggingLevel = logLvl;
+        BurningEngine.UpdateLastLogPath();
 
         s.DataLabel = string.IsNullOrWhiteSpace(DefaultDiscLabelBox.Text) ? "Disc" : DefaultDiscLabelBox.Text.Trim();
         s.DataCacheFilesAutomatically = AutoCacheRemovableToggle.IsOn;
@@ -111,6 +114,7 @@ public sealed partial class SettingsPage : Page
         s.AudioCrossfadingDuration = Math.Clamp(CrossfadeDurationBox.Value, 0, 15);
 
         AppServices.Current.Settings.Save();
+        AppServices.Current.ApplyDefaultDataBurnerSettings();
     }
 
     private void ThemeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -154,6 +158,23 @@ public sealed partial class SettingsPage : Page
             CustomTempFolderBox.Text = folder;
             UseCustomTempToggle.IsOn = true;
             SaveUiToSettings();
+        }
+    }
+
+    private void OpenLogsFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string dir = DiagnosticLogger.LogDirectory;
+            Directory.CreateDirectory(dir);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            StatusInfoBar.Severity = InfoBarSeverity.Error;
+            StatusInfoBar.Title = "Cannot Open Logs Folder";
+            StatusInfoBar.Message = ex.Message;
+            StatusInfoBar.IsOpen = true;
         }
     }
 

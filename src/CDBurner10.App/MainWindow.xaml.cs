@@ -14,6 +14,9 @@ namespace CDBurner10.App;
 public sealed partial class MainWindow : Window
 {
     private DeviceChangeMonitor? _deviceMonitor;
+    private TrayIconService? _trayService;
+    private AppWindow? _appWindow;
+    private bool _allowClose;
     private DropBoxWindow? _dropBoxWindow;
     private bool _suppressDriveSelectionChanged;
 
@@ -67,8 +70,18 @@ public sealed partial class MainWindow : Window
 
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-        var appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new SizeInt32(1280, 820));
+        _appWindow = AppWindow.GetFromWindowId(windowId);
+        _appWindow.Resize(new SizeInt32(1280, 820));
+        _appWindow.Closing += MainWindow_AppWindowClosing;
+
+        _trayService = new TrayIconService(hwnd);
+        _trayService.RestoreRequested += (_, _) => DispatcherQueue.TryEnqueue(() => _trayService.RestoreFromTray());
+        _trayService.ExitRequested += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            _allowClose = true;
+            _trayService.RemoveTrayIcon();
+            Close();
+        });
     }
 
     private void HookDeviceChangeMonitor()
@@ -308,9 +321,19 @@ public sealed partial class MainWindow : Window
     private async void RefreshDrivesButton_Click(object sender, RoutedEventArgs e) =>
         await AppServices.Current.RefreshDrivesAsync();
 
+    private void MainWindow_AppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (!_allowClose && AppServices.Current.Settings.Current.ExitToNotify)
+        {
+            args.Cancel = true;
+            _trayService?.HideToTray("CDBurner10");
+        }
+    }
+
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
         _dropBoxWindow?.Close();
+        _trayService?.Dispose();
         _deviceMonitor?.Dispose();
         AppServices.Current.Dispose();
     }

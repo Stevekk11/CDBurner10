@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using CDBurner10.Core.Burning;
+using CDBurner10.Core.Utilities;
 using Microsoft.Win32.SafeHandles;
 
 namespace CDBurner10.Core.Native;
@@ -694,7 +695,7 @@ internal static class ScsiOpticalDevice
             BinaryPrimitives.WriteUInt32BigEndian(streamDesc.AsSpan(24, 4), 1000); // 1000 ms
         }
         byte[] streamCdb = [0xB6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 28, 0x00];
-        SendScsiCommand(handle, streamCdb, streamDesc, SCSI_IOCTL_DATA_OUT, 10, out _, out _, out _);
+        bool okB6 = SendScsiCommand(handle, streamCdb, streamDesc, SCSI_IOCTL_DATA_OUT, 10, out byte skB6, out byte ascB6, out byte ascqB6);
 
         // 2. Legacy SET CD SPEED (0xBB)
         ushort readVal = readKBps <= 0 ? (ushort)0xFFFF : (ushort)Math.Clamp(readKBps, 1, 0xFFFE);
@@ -706,7 +707,9 @@ internal static class ScsiOpticalDevice
             (byte)(writeVal >> 8), (byte)(writeVal & 0xFF),
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00
         ];
-        SendScsiCommand(handle, cdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 10, out _, out _, out _);
+        bool okBB = SendScsiCommand(handle, cdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 10, out byte skBB, out byte ascBB, out byte ascqBB);
+        DiagnosticLogger.Verbose("SCSI",
+            $"SetReadWriteSpeed(read={readKBps}, write={writeKBps}) -> 0xB6:{(okB6 ? "OK" : $"{skB6:X2}/{ascB6:X2}/{ascqB6:X2}")}, 0xBB:{(okBB ? "OK" : $"{skBB:X2}/{ascBB:X2}/{ascqBB:X2}")}");
     }
 
     public static bool TrySetReadSpeed(string? driveLetter, int readSpeedKBps)

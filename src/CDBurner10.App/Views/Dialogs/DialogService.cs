@@ -7,9 +7,9 @@ namespace CDBurner10.App.Views.Dialogs;
 
 public sealed class DialogService : DefaultDialogService
 {
-    public override async Task ShowBurnDataDialogAsync(XamlRoot xamlRoot, DataCompilation compilation, DriveModel? preferredDrive)
+    public override async Task ShowBurnDataDialogAsync(XamlRoot xamlRoot, DataCompilation compilation, DriveModel? preferredDrive, bool autoStart = false)
     {
-        var dialog = new BurnDataDialog(compilation, preferredDrive)
+        var dialog = new BurnDataDialog(compilation, preferredDrive, autoStart)
         {
             XamlRoot = ResolveXamlRoot(xamlRoot)
         };

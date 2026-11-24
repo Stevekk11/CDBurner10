@@ -134,6 +134,7 @@ public sealed partial class BurnAudioDialog : ContentDialog
         {
             log.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             EventLogBox.Text = log.ToString();
+            CDBurner10.Core.Utilities.DiagnosticLogger.Info("BurnAudio", msg);
         }
 
         AppendLog($"Starting Audio CD burn ({_compilation.Tracks.Count} tracks) to {drive.DisplayName}...");

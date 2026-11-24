@@ -192,6 +192,7 @@ public sealed partial class BurnIsoPage : Page
         {
             log.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             EventLogBox.Text = log.ToString();
+            CDBurner10.Core.Utilities.DiagnosticLogger.Info("BurnIso", msg);
         }
 
         AppendLog($"Starting burn of '{Path.GetFileName(path)}' to {drive.DisplayName}...");

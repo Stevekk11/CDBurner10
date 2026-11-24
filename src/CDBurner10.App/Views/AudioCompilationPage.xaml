@@ -235,6 +235,7 @@
 
         <!-- Integrated Modern Audio Player Bar -->
         <Border
+            x:Name="AudioPlayerBar"
             Grid.Row="2"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"

@@ -451,6 +451,7 @@ public sealed partial class CopyDiscPage : Page
         {
             log.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             EventLogBox.Text = log.ToString();
+            DiagnosticLogger.Info("CopyDisc", msg);
         }
 
         var sw = Stopwatch.StartNew();

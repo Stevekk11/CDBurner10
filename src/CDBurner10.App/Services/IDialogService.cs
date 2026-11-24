@@ -17,7 +17,7 @@ public interface IDialogService
     Task<string?> PromptTextAsync(XamlRoot xamlRoot, string title, string label, string initialValue = "");
 
     // Data Compilation Dialogs
-    Task ShowBurnDataDialogAsync(XamlRoot xamlRoot, DataCompilation compilation, DriveModel? preferredDrive);
+    Task ShowBurnDataDialogAsync(XamlRoot xamlRoot, DataCompilation compilation, DriveModel? preferredDrive, bool autoStart = false);
     Task<bool> ShowFileSystemDialogAsync(XamlRoot xamlRoot, GenericDataBurner burner);
     Task<bool> ShowBootOptionsDialogAsync(XamlRoot xamlRoot, GenericDataBurner burner);
     Task<bool> ShowDiscLabelDialogAsync(XamlRoot xamlRoot, GenericDataBurner burner);
@@ -81,7 +81,7 @@ public class DefaultDialogService : IDialogService
         return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Text : null;
     }
 
-    public virtual Task ShowBurnDataDialogAsync(XamlRoot xamlRoot, DataCompilation compilation, DriveModel? preferredDrive) =>
+    public virtual Task ShowBurnDataDialogAsync(XamlRoot xamlRoot, DataCompilation compilation, DriveModel? preferredDrive, bool autoStart = false) =>
         ShowMessageAsync(xamlRoot, "Burn Data Disc", "Burn Data Disc dialog is not registered yet.");
 
     public virtual Task<bool> ShowFileSystemDialogAsync(XamlRoot xamlRoot, GenericDataBurner burner) =>

@@ -97,6 +97,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <ToggleSwitch x:Name="LoggingEnabledToggle" Grid.Column="0" Header="Enable diagnostic logging" Toggled="SettingControl_Changed" />
                         <ComboBox x:Name="LoggingLevelComboBox" Grid.Column="1" Header="Log Level" HorizontalAlignment="Stretch" SelectionChanged="SettingControl_Changed">
@@ -104,6 +105,12 @@
                             <ComboBoxItem Content="Medium (Default)" Tag="-1" />
                             <ComboBoxItem Content="High (2)" Tag="2" />
                         </ComboBox>
+                        <Button
+                            x:Name="OpenLogsFolderButton"
+                            Grid.Column="2"
+                            Content="Open Logs Folder"
+                            VerticalAlignment="Bottom"
+                            Click="OpenLogsFolderButton_Click" />
                     </Grid>
 
                     <!-- Import & Reset Buttons -->

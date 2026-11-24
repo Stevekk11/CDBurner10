@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using CDBurner10.Core.Native;
+using CDBurner10.Core.Settings;
+using CDBurner10.Core.Utilities;
 
 namespace CDBurner10.Core.Burning;
 
@@ -20,10 +22,19 @@ public static class BurningEngine
     {
         lock (SyncLock)
         {
+            DiagnosticLogger.Configure(enableLogging, logLevel, logDirectory);
+            UpdateLastLogPath();
+
             if (_isInitialized) return;
             _isInitialized = true;
+            DiagnosticLogger.Info("Engine", $"BurningEngine initialized (Level={DiagnosticLogger.CurrentLevel}, Portable={SettingsService.Default.IsPortableMode}).");
             RebuildDriveCache();
         }
+    }
+
+    public static void UpdateLastLogPath()
+    {
+        LastLogPath = DiagnosticLogger.IsEnabled ? DiagnosticLogger.CurrentLogFilePath : string.Empty;
     }
 
     public static void Uninitialize()

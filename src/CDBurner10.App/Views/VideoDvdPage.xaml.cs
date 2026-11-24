@@ -240,6 +240,7 @@ public sealed partial class VideoDvdPage : Page
         {
             log.AppendLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
             EventLogBox.Text = log.ToString();
+            CDBurner10.Core.Utilities.DiagnosticLogger.Info("VideoDvd", msg);
         }
 
         AppendLog(startMessage);
