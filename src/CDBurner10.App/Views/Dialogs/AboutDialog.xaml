@@ -21,7 +21,7 @@
             </Border>
             <StackPanel VerticalAlignment="Center" Spacing="2">
                 <TextBlock Text="CDBurner10" Style="{StaticResource SubtitleTextBlockStyle}" />
-                <TextBlock Text="Version 10.5.3 (64-bit) • Open-Source Optical Media Suite" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Text="Version 10.5.4 (64-bit) • Open-Source Optical Media Suite" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
         </StackPanel>
 
