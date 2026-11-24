@@ -7,6 +7,10 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <CornerRadius x:Key="OverlayCornerRadius">8</CornerRadius>
+            <Style TargetType="ContentDialog" BasedOn="{StaticResource DefaultContentDialogStyle}">
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

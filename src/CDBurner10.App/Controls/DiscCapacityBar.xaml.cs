@@ -312,6 +312,7 @@ public sealed partial class DiscCapacityBar : UserControl
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
         };
 
+        var activeTheme = (App.MainWindow?.Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Default;
         var dialog = new ContentDialog
         {
             Title = "Custom Disc Size",
@@ -319,7 +320,9 @@ public sealed partial class DiscCapacityBar : UserControl
             PrimaryButtonText = "Apply",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot
+            XamlRoot = XamlRoot,
+            RequestedTheme = activeTheme,
+            CornerRadius = new CornerRadius(8)
         };
 
         if (await dialog.ShowAsync() == ContentDialogResult.Primary && !double.IsNaN(mbBox.Value))

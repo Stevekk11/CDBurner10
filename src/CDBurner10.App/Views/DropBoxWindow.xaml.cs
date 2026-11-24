@@ -17,6 +17,8 @@ public sealed partial class DropBoxWindow : Window
     {
         InitializeComponent();
         ConfigureWindow();
+        if (Content is FrameworkElement root && App.MainWindow?.Content is FrameworkElement mainRoot)
+            root.RequestedTheme = mainRoot.RequestedTheme;
     }
 
     private void ConfigureWindow()

@@ -40,44 +40,57 @@ public interface IDialogService
 /// </summary>
 public class DefaultDialogService : IDialogService
 {
+    protected static ElementTheme GetActiveTheme(XamlRoot? xamlRoot) =>
+        (xamlRoot?.Content as FrameworkElement)?.ActualTheme switch
+        {
+            ElementTheme.Dark => ElementTheme.Dark,
+            ElementTheme.Light => ElementTheme.Light,
+            _ => ElementTheme.Default
+        };
+
+    protected static T PrepareDialog<T>(T dialog, XamlRoot? xamlRoot) where T : ContentDialog
+    {
+        dialog.XamlRoot = xamlRoot;
+        dialog.RequestedTheme = GetActiveTheme(xamlRoot);
+        dialog.CornerRadius = new CornerRadius(8);
+        return dialog;
+    }
+
     public virtual async Task ShowMessageAsync(XamlRoot xamlRoot, string title, string message)
     {
-        var dialog = new ContentDialog
+        var dialog = PrepareDialog(new ContentDialog
         {
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            CloseButtonText = "OK",
-            XamlRoot = xamlRoot
-        };
+            CloseButtonText = "OK"
+        }, xamlRoot);
         await dialog.ShowAsync();
     }
 
     public virtual async Task<bool> ConfirmAsync(XamlRoot xamlRoot, string title, string message, string primaryText = "OK", string closeText = "Cancel")
     {
-        var dialog = new ContentDialog
+        var dialog = PrepareDialog(new ContentDialog
         {
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
             PrimaryButtonText = primaryText,
             CloseButtonText = closeText,
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = xamlRoot
-        };
+            DefaultButton = ContentDialogButton.Primary
+        }, xamlRoot);
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     public virtual async Task<string?> PromptTextAsync(XamlRoot xamlRoot, string title, string label, string initialValue = "")
     {
         var box = new TextBox { Header = label, Text = initialValue };
-        var dialog = new ContentDialog
+        var dialog = PrepareDialog(new ContentDialog
         {
             Title = title,
             Content = box,
             PrimaryButtonText = "OK",
             CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = xamlRoot
-        };
+            DefaultButton = ContentDialogButton.Primary
+        }, xamlRoot);
         return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Text : null;
     }
 

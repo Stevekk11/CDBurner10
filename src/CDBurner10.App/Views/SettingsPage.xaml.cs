@@ -229,7 +229,13 @@ public sealed partial class SettingsPage : Page
 
     private async void AboutButton_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new AboutDialog { XamlRoot = XamlRoot };
+        var activeTheme = (App.MainWindow?.Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Default;
+        var dialog = new AboutDialog
+        {
+            XamlRoot = XamlRoot,
+            RequestedTheme = activeTheme,
+            CornerRadius = new CornerRadius(8)
+        };
         LocalizationService.Current.TranslateTree(dialog);
         await dialog.ShowAsync();
     }
