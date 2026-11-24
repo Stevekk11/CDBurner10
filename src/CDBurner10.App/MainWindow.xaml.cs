@@ -1,4 +1,4 @@
-using CDBurner10.App.Converters;
+﻿using CDBurner10.App.Converters;
 using CDBurner10.App.Services;
 using CDBurner10.App.Views;
 using CDBurner10.Core.Burning;
@@ -26,6 +26,9 @@ public sealed partial class MainWindow : Window
         ["data"] = typeof(DataCompilationPage),
         ["audio"] = typeof(AudioCompilationPage),
         ["video"] = typeof(VideoDvdPage),
+        ["bluray"] = typeof(BluRayVideoPage),
+        ["dvdfile"] = typeof(DvdFromFilePage),
+        ["bdfile"] = typeof(BluRayFromFilePage),
         ["iso"] = typeof(BurnIsoPage),
         ["copy"] = typeof(CopyDiscPage),
         ["erase"] = typeof(EraseDiscPage),
@@ -197,12 +200,18 @@ public sealed partial class MainWindow : Window
 
     private NavigationViewItem? FindNavItemByTag(string tag)
     {
-        foreach (var item in NavView.MenuItems.Concat(NavView.FooterMenuItems))
+        return FindNavItemByTag(NavView.MenuItems.Concat(NavView.FooterMenuItems), tag);
+    }
+
+    private static NavigationViewItem? FindNavItemByTag(IEnumerable<object> items, string tag)
+    {
+        foreach (var item in items)
         {
-            if (item is NavigationViewItem nvi &&
-                nvi.Tag is string t &&
-                t.Equals(tag, StringComparison.OrdinalIgnoreCase))
+            if (item is not NavigationViewItem nvi) continue;
+            if (nvi.Tag is string t && t.Equals(tag, StringComparison.OrdinalIgnoreCase))
                 return nvi;
+            var child = FindNavItemByTag(nvi.MenuItems, tag);
+            if (child is not null) return child;
         }
         return null;
     }
@@ -256,7 +265,7 @@ public sealed partial class MainWindow : Window
         if (_dropBoxWindow is null) return;
         bool isAudio = AppServices.Current.ActiveCompilationMode.Equals("Audio", StringComparison.OrdinalIgnoreCase);
         _dropBoxWindow.UpdateTarget(
-            isAudio ? "Audio Disc" : "Data Disc",
+            isAudio ? "Audio CD" : "Data Disc",
             isAudio
                 ? $"{AppServices.Current.ActiveAudioCompilation.Tracks.Count} track(s) in compilation"
                 : $"{AppServices.Current.ActiveDataCompilation.DataBurner.FileCount} file(s) in compilation");

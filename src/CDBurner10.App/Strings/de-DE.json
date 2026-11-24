@@ -1,8 +1,10 @@
-{
+﻿{
   "Home": "Startseite",
   "Burn & Create": "Brennen & Erstellen",
   "Data Disc": "Daten-Disc",
-  "Audio Disc": "Audio-Disc",
+  "Audio CD": "Audio-CD",
+  "Video Blu-ray": "Video-Blu-ray",
+  "Burn from MP4/MKV": "Von MP4/MKV brennen",
   "Video DVD": "Video-DVD",
   "Burn ISO Image": "ISO-Abbild brennen",
   "Copy Disc": "Disc kopieren",

@@ -1,8 +1,10 @@
-{
+﻿{
   "Home": "Domov",
   "Burn & Create": "Napáliť a vytvoriť",
   "Data Disc": "Dátový disk",
-  "Audio Disc": "Audio disk",
+  "Audio CD": "Audio CD",
+  "Video Blu-ray": "Video Blu-ray",
+  "Burn from MP4/MKV": "Napáliť z MP4/MKV",
   "Video DVD": "Video DVD",
   "Burn ISO Image": "Napáliť obraz ISO",
   "Copy Disc": "Kopírovať disk",

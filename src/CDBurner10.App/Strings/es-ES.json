@@ -1,8 +1,10 @@
-{
+﻿{
   "Home": "Inicio",
   "Burn & Create": "Grabar y crear",
   "Data Disc": "Disco de datos",
-  "Audio Disc": "Disco de audio",
+  "Audio CD": "CD de audio",
+  "Video Blu-ray": "Blu-ray de vídeo",
+  "Burn from MP4/MKV": "Grabar desde MP4/MKV",
   "Video DVD": "DVD de vídeo",
   "Burn ISO Image": "Grabar imagen ISO",
   "Copy Disc": "Copiar disco",

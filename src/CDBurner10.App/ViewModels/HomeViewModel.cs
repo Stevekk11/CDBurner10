@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using CDBurner10.App.Converters;
 using CDBurner10.App.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -34,7 +34,7 @@ public sealed partial class HomeViewModel : ObservableObject
         TaskCards.Clear();
         TaskCards.Add(new("data", Loc.T("Data Disc"), "ISO9660 / Joliet / UDF", Loc.T("Burn files and folders to CD, DVD, or Blu-ray. Supports bootable discs, multi-session, and ISO creation."), "\uE8B7"));
         TaskCards.Add(new("video", Loc.T("Video DVD"), "DVD-Video", Loc.T("Burn a VIDEO_TS folder to a DVD-Video disc compatible with standalone players, or save as ISO."), "\uE714"));
-        TaskCards.Add(new("audio", Loc.T("Audio Disc"), "Red Book CD-DA", Loc.T("Create standard Audio CDs from MP3, FLAC, WAV, OGG, and playlists with CD-Text, ReplayGain, and crossfading."), "\uE8D6"));
+        TaskCards.Add(new("audio", Loc.T("Audio CD"), "Red Book CD-DA", Loc.T("Create standard Audio CDs from MP3, FLAC, WAV, OGG, and playlists with CD-Text, ReplayGain, and crossfading."), "\uE8D6"));
         TaskCards.Add(new("iso", Loc.T("Burn ISO Image"), "ISO / BIN / NRG", Loc.T("Write an existing ISO or disc image directly to optical media with verification."), "\uE958"));
         TaskCards.Add(new("copy", Loc.T("Copy Disc"), Loc.T("Direct or Image Grab"), Loc.T("Duplicate an optical disc to another disc or save it to your hard drive as an ISO image."), "\uE8C8"));
         TaskCards.Add(new("mp4", Loc.T("DVD to MP4"), Loc.T("Direct single-pass"), Loc.T("Convert a DVD directly from your optical drive (or ISO / VIDEO_TS) to MP4 in one pass with GPU acceleration, skipping menus and adverts."), "\uE8B2"));
