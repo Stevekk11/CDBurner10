@@ -1491,8 +1491,8 @@ internal static class ScsiOpticalDevice
                 ct.ThrowIfCancellationRequested();
                 var tb = trackBounds[i];
 
-                // Query Next Writable Address (NWA) for the invisible/open track (0xFF)
-                int currentLba = QueryNextWritableAddress(handle);
+                // Query Track Number and Next Writable Address (NWA) for the invisible/open track (0xFF)
+                var (trackNumber, currentLba) = QueryInvisibleTrackInfo(handle);
 
                 using var fs = new FileStream(tb.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
                 fs.Seek(tb.DataOffset, SeekOrigin.Begin);
@@ -1543,9 +1543,15 @@ internal static class ScsiOpticalDevice
 
                 if (!testBurn)
                 {
-                    // CLOSE TRACK/SESSION (0x5B), CloseFunction = 0x01 (Close Track), Track = 0xFF (invisible)
-                    byte[] closeTrackCdb = [0x5B, 0x00, 0x01, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00];
-                    SendScsiCommand(handle, closeTrackCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 120, out _, out _, out _);
+                    // CLOSE TRACK/SESSION (0x5B), CloseFunction = 0x01 (Close Track), actual Track Number (0xFF is invalid in 0x5B)
+                    byte[] closeTrackCdb =
+                    [
+                        0x5B, 0x00, 0x01, 0x00,
+                        (byte)((trackNumber >> 8) & 0xFF), (byte)(trackNumber & 0xFF),
+                        0x00, 0x00, 0x00, 0x00
+                    ];
+                    if (!SendScsiCommand(handle, closeTrackCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 120, out byte ctSk, out byte ctAsc, out byte ctAscq))
+                        throw new IOException($"Failed to close audio track {trackNumber} (Sense {ctSk:X2}/{ctAsc:X2}/{ctAscq:X2}).");
                     WaitForDriveReady(handle, ct);
                 }
             }
@@ -1555,7 +1561,8 @@ internal static class ScsiOpticalDevice
                 progress?.Report(new BurnProgress(BurnPhase.ClosingSession, 99, 100, Message: "Closing audio session..."));
                 // CLOSE TRACK/SESSION (0x5B), CloseFunction = 0x02 (Close Session)
                 byte[] closeSessionCdb = [0x5B, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-                SendScsiCommand(handle, closeSessionCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 180, out _, out _, out _);
+                if (!SendScsiCommand(handle, closeSessionCdb, null, SCSI_IOCTL_DATA_UNSPECIFIED, 180, out byte csSk, out byte csAsc, out byte csAscq))
+                    throw new IOException($"Failed to close audio session (Sense {csSk:X2}/{csAsc:X2}/{csAscq:X2}).");
                 WaitForDriveReady(handle, ct);
             }
         }
@@ -1594,17 +1601,19 @@ internal static class ScsiOpticalDevice
             throw new IOException($"Failed to set TAO write parameters (Sense {sk:X2}/{asc:X2}/{ascq:X2}).");
     }
 
-    private static int QueryNextWritableAddress(SafeFileHandle handle)
+    private static (int TrackNumber, int NextWritableAddress) QueryInvisibleTrackInfo(SafeFileHandle handle)
     {
         var tiBuf = new byte[36];
         // 1. Try READ TRACK INFORMATION (0x52), Address/Number Type = 1, Track = 0xFF (invisible/open track)
         byte[] tiCdb = [0x52, 0x01, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, (byte)tiBuf.Length, 0x00];
         if (SendScsiCommand(handle, tiCdb, tiBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
         {
+            int trackNum = tiBuf[2] | (tiBuf[32] << 8);
             bool nwaValid = (tiBuf[7] & 0x01) != 0;
-            return nwaValid
+            int nwa = nwaValid
                 ? (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(12, 4))
                 : (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(8, 4));
+            return (trackNum, nwa);
         }
 
         // 2. Fallback: query READ DISC INFORMATION (0x51) for lastTrackLastSession and read its Track Information
@@ -1618,10 +1627,12 @@ internal static class ScsiOpticalDevice
                 byte[] tiLastCdb = [0x52, 0x01, 0x00, 0x00, (byte)(lastTrack >> 8), (byte)(lastTrack & 0xFF), 0x00, 0x00, (byte)tiBuf.Length, 0x00];
                 if (SendScsiCommand(handle, tiLastCdb, tiBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
                 {
+                    int trackNum = tiBuf[2] | (tiBuf[32] << 8);
                     bool nwaValid = (tiBuf[7] & 0x01) != 0;
-                    return nwaValid
+                    int nwa = nwaValid
                         ? (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(12, 4))
                         : (int)BinaryPrimitives.ReadUInt32BigEndian(tiBuf.AsSpan(8, 4));
+                    return (trackNum > 0 ? trackNum : lastTrack, nwa);
                 }
             }
         }

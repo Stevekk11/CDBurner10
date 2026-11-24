@@ -171,7 +171,6 @@ public sealed class AudioBurner
 
             tao.put_Recorder(recorder);
             tao.put_ClientName("CDBurner10");
-            tao.put_BufferUnderrunFreeDisabled(false);
 
             if (options.TestBurn)
             {
@@ -211,7 +210,8 @@ public sealed class AudioBurner
                 tao.PrepareMedia();
                 mediaPrepared = true;
 
-                // IMAPI2 TrackAtOnce requires PrepareMedia() before setting DoNotFinalizeMedia or write speed
+                // IMAPI2 TrackAtOnce requires PrepareMedia() before setting BUF, DoNotFinalizeMedia, or write speed
+                try { tao.put_BufferUnderrunFreeDisabled(false); } catch (COMException) { }
                 tao.put_DoNotFinalizeMedia(!options.FinalizeDisc);
                 if (options.WriteSpeedKBps > 0)
                 {
