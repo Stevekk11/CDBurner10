@@ -2,8 +2,9 @@
     x:Class="CDBurner10.App.Views.EraseDiscPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer Padding="28,20">
-        <StackPanel MaxWidth="820" Spacing="18">
+    <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" VerticalScrollBarVisibility="Auto">
+        <Grid Padding="28,20">
+            <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
                 <TextBlock Text="Erase Disc" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock
@@ -135,6 +136,7 @@
                     <ProgressBar x:Name="EraseProgressBar" Minimum="0" Maximum="100" Value="0" />
                 </StackPanel>
             </Border>
-        </StackPanel>
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </Page>

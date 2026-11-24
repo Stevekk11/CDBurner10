@@ -1,9 +1,10 @@
-﻿<Page
+<Page
     x:Class="CDBurner10.App.Views.VideoDvdPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer Padding="28,20">
-        <StackPanel MaxWidth="980" Spacing="18">
+    <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" VerticalScrollBarVisibility="Auto">
+        <Grid Padding="28,20">
+            <StackPanel MaxWidth="980" HorizontalAlignment="Stretch" Spacing="18">
             <!-- Header -->
             <StackPanel Spacing="4">
                 <TextBlock Text="Burn Video DVD" Style="{StaticResource TitleTextBlockStyle}" />
@@ -229,6 +230,7 @@
                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
                 </StackPanel>
             </Border>
-        </StackPanel>
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </Page>

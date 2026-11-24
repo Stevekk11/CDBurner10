@@ -4,75 +4,122 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     HorizontalAlignment="Stretch"
     HorizontalContentAlignment="Stretch">
-    <ScrollViewer Padding="28,20" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel MaxWidth="980" Spacing="18">
-            <Button x:Name="BackButton" Click="Back_Click" HorizontalAlignment="Left">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE72B;" FontSize="14" />
-                    <TextBlock x:Name="BackButtonText" Text="Back" />
-                </StackPanel>
-            </Button>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-            <StackPanel Spacing="4">
-                <TextBlock x:Name="TitleText" Style="{StaticResource TitleTextBlockStyle}" />
-                <TextBlock x:Name="SubtitleText" TextWrapping="Wrap"
-                           Style="{StaticResource BodyTextBlockStyle}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <!-- Pinned Header with Back Button -->
+        <Grid
+            Grid.Row="0"
+            Padding="28,16,28,12"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0,0,0,1">
+            <StackPanel MaxWidth="980" HorizontalAlignment="Stretch" Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Button x:Name="BackButton" Click="Back_Click" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                            <TextBlock x:Name="BackButtonText" Text="Back" />
+                        </StackPanel>
+                    </Button>
+                    <TextBlock x:Name="TitleText" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock
+                    x:Name="SubtitleText"
+                    TextWrapping="Wrap"
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
+        </Grid>
 
-            <InfoBar x:Name="StatusInfoBar" IsOpen="True" IsClosable="False" Severity="Informational"
-                     Title="Preview" Message="This feature is a UI placeholder. Encoding and burning are not implemented yet." />
+        <!-- Scrollable Body -->
+        <ScrollViewer
+            Grid.Row="1"
+            HorizontalScrollMode="Disabled"
+            HorizontalScrollBarVisibility="Disabled"
+            HorizontalContentAlignment="Stretch"
+            VerticalScrollBarVisibility="Auto">
+            <Grid Padding="28,16,28,20">
+                <StackPanel MaxWidth="980" HorizontalAlignment="Stretch" Spacing="16">
+                    <InfoBar
+                        x:Name="StatusInfoBar"
+                        IsOpen="True"
+                        IsClosable="False"
+                        Severity="Informational"
+                        Title="Preview"
+                        Message="This feature is a UI placeholder. Encoding and burning are not implemented yet." />
 
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="8" Padding="20">
-                <StackPanel Spacing="14">
-                    <TextBlock Text="Source Videos" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <Grid ColumnSpacing="10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="SourcePathBox" Header="Video file (MP4 / MKV)"
-                                 PlaceholderText="Select an .mp4 or .mkv file..." />
-                        <Button Grid.Column="1" Content="Browse..." VerticalAlignment="Bottom"
-                                Click="Browse_Click" />
-                    </Grid>
+                    <Border
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="20">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="Source Videos" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox
+                                    x:Name="SourcePathBox"
+                                    Header="Video file (MP4 / MKV)"
+                                    PlaceholderText="Select an .mp4 or .mkv file..." />
+                                <Button
+                                    Grid.Column="1"
+                                    Content="Browse..."
+                                    VerticalAlignment="Bottom"
+                                    Click="Browse_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="20">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="Options" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <Grid ColumnSpacing="14" RowSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <ComboBox x:Name="DiscTypeCombo" Header="Target disc" HorizontalAlignment="Stretch" />
+                                <ComboBox x:Name="StandardCombo" Grid.Column="1" Header="Video standard" HorizontalAlignment="Stretch" />
+                                <ComboBox x:Name="AspectCombo" Grid.Row="1" Header="Aspect ratio" HorizontalAlignment="Stretch" />
+                                <ComboBox x:Name="QualityCombo" Grid.Row="1" Grid.Column="1" Header="Quality" HorizontalAlignment="Stretch" />
+                                <ComboBox x:Name="AudioTrackCombo" Grid.Row="2" Header="Audio track" HorizontalAlignment="Stretch" />
+                                <ComboBox x:Name="SubtitleCombo" Grid.Row="2" Grid.Column="1" Header="Subtitles" HorizontalAlignment="Stretch" />
+                            </Grid>
+                            <TextBox x:Name="DiscLabelBox" Header="Disc label" MaxLength="32" Text="MY_VIDEO" />
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ToggleSwitch x:Name="MenuToggle" Grid.Column="0" Header="Create disc menu" IsOn="True" />
+                                <ToggleSwitch x:Name="VerifyToggle" Grid.Column="1" Header="Verify after burning" IsOn="True" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button x:Name="BurnButton" Style="{StaticResource AccentButtonStyle}" Click="Burn_Click" />
+                        <Button Content="Save as ISO..." Click="SaveIso_Click" />
+                    </StackPanel>
                 </StackPanel>
-            </Border>
-
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="8" Padding="20">
-                <StackPanel Spacing="14">
-                    <TextBlock Text="Options" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <Grid ColumnSpacing="14" RowSpacing="14">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <ComboBox x:Name="DiscTypeCombo" Header="Target disc" HorizontalAlignment="Stretch" />
-                        <ComboBox x:Name="StandardCombo" Grid.Column="1" Header="Video standard" HorizontalAlignment="Stretch" />
-                        <ComboBox x:Name="AspectCombo" Grid.Row="1" Header="Aspect ratio" HorizontalAlignment="Stretch" />
-                        <ComboBox x:Name="QualityCombo" Grid.Row="1" Grid.Column="1" Header="Quality" HorizontalAlignment="Stretch" />
-                        <ComboBox x:Name="AudioTrackCombo" Grid.Row="2" Header="Audio track" HorizontalAlignment="Stretch" />
-                        <ComboBox x:Name="SubtitleCombo" Grid.Row="2" Grid.Column="1" Header="Subtitles" HorizontalAlignment="Stretch" />
-                    </Grid>
-                    <TextBox x:Name="DiscLabelBox" Header="Disc label" MaxLength="32" Text="MY_VIDEO" />
-                    <ToggleSwitch x:Name="MenuToggle" Header="Create disc menu" IsOn="True" />
-                    <ToggleSwitch x:Name="VerifyToggle" Header="Verify after burning" IsOn="True" />
-                </StackPanel>
-            </Border>
-
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <Button x:Name="BurnButton" Style="{StaticResource AccentButtonStyle}" Click="Burn_Click" />
-                <Button Content="Save as ISO..." Click="SaveIso_Click" />
-            </StackPanel>
-        </StackPanel>
-    </ScrollViewer>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
 </UserControl>

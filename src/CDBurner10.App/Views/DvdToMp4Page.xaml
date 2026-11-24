@@ -5,8 +5,9 @@
     AllowDrop="True"
     DragOver="Page_DragOver"
     Drop="Page_Drop">
-    <ScrollViewer Padding="28,20">
-        <StackPanel MaxWidth="900" Spacing="18">
+    <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" VerticalScrollBarVisibility="Auto">
+        <Grid Padding="28,20">
+            <StackPanel MaxWidth="900" HorizontalAlignment="Stretch" Spacing="18">
             <StackPanel Spacing="4">
                 <TextBlock Text="DVD to MP4" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock
@@ -279,6 +280,7 @@
                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
                 </StackPanel>
             </Border>
-        </StackPanel>
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </Page>
