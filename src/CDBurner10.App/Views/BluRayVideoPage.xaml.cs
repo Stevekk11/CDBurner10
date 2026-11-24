@@ -1,4 +1,4 @@
-using CDBurner10.App.Services;
+﻿using CDBurner10.App.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -25,4 +25,6 @@ public sealed partial class BluRayVideoPage : Page
         StatusInfoBar.Message = "Video Blu-ray burning is not implemented yet.";
         StatusInfoBar.IsOpen = true;
     }
+
+    private void BurnFromFile_Click(object sender, RoutedEventArgs e) => AppServices.Current.NavigateTo("bdfile");
 }

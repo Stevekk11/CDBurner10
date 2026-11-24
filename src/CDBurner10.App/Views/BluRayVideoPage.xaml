@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="CDBurner10.App.Views.BluRayVideoPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
@@ -10,6 +10,7 @@
                            Text="Burn a BDMV folder to a Blu-ray video disc, or save it as an ISO image."
                            Style="{StaticResource BodyTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Button Content="Burn from MP4/MKV..." Click="BurnFromFile_Click" HorizontalAlignment="Left" Margin="0,8,0,0" />
             </StackPanel>
 
             <InfoBar x:Name="StatusInfoBar" IsOpen="True" IsClosable="False" Severity="Informational"

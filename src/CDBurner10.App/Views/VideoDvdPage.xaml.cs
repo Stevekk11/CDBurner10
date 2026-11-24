@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using CDBurner10.App.Converters;
 using CDBurner10.App.Services;
@@ -318,4 +318,6 @@ public sealed partial class VideoDvdPage : Page
         StatusInfoBar.Message = message;
         StatusInfoBar.IsOpen = true;
     }
+
+    private void BurnFromFile_Click(object sender, RoutedEventArgs e) => AppServices.Current.NavigateTo("dvdfile");
 }
