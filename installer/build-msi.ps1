@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "10.5.6.0",
+    [string]$Version = "10.5.7.0",
     [switch]$SkipPublish
 )
 
