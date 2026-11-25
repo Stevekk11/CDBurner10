@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://stevekk11.github.io/CDBurner10/sitemap.xml

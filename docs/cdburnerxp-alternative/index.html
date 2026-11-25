@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CDBurnerXP Alternative for Windows 11 (Open-Source, 64-bit) — CDBurner10</title>
+  <meta name="description" content="Looking for a modern CDBurnerXP alternative for Windows 10/11? CDBurner10 is 100% open-source (GPLv3), native 64-bit WinUI 3, imports .dxp/.axp files, and includes cdbxpcmd.exe CLI parity.">
+  <link rel="canonical" href="https://stevekk11.github.io/CDBurner10/cdburnerxp-alternative/">
+  <link rel="icon" href="../assets/favicon.ico" sizes="any">
+  <link rel="stylesheet" href="../styles.css">
+
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="CDBurner10">
+  <meta property="og:title" content="CDBurnerXP Alternative for Windows 11 — CDBurner10 (Open-Source)">
+  <meta property="og:description" content="Native 64-bit WinUI 3 replacement for CDBurnerXP with .dxp/.axp compatibility, cdbxpcmd.exe CLI parity, and zero adware.">
+  <meta property="og:url" content="https://stevekk11.github.io/CDBurner10/cdburnerxp-alternative/">
+  <meta property="og:image" content="https://stevekk11.github.io/CDBurner10/assets/og-preview.png">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="CDBurnerXP Alternative for Windows 11 — CDBurner10 (Open-Source)">
+  <meta name="twitter:description" content="Native 64-bit WinUI 3 replacement for CDBurnerXP with .dxp/.axp compatibility, cdbxpcmd.exe CLI parity, and zero adware.">
+  <meta name="twitter:image" content="https://stevekk11.github.io/CDBurner10/assets/og-preview.png">
+
+  <script type="application/ld+json">
+  [
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "CDBurner10", "item": "https://stevekk11.github.io/CDBurner10/" },
+        { "@type": "ListItem", "position": 2, "name": "CDBurnerXP Alternative", "item": "https://stevekk11.github.io/CDBurner10/cdburnerxp-alternative/" }
+      ]
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "CDBurner10: The Modern Open-Source CDBurnerXP Alternative for Windows 10 & 11",
+      "description": "Comparison and migration guide from CDBurnerXP to CDBurner10, covering .dxp/.axp compilation import, UserSettings.ini migration, and cdbxpcmd.exe CLI parity.",
+      "url": "https://stevekk11.github.io/CDBurner10/cdburnerxp-alternative/"
+    }
+  ]
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav-bar">
+      <a class="brand" href="../">
+        <img src="../assets/logo.webp" alt="CDBurner10 logo" width="32" height="32">
+        <span>CDBurner10</span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="../">Home</a>
+        <a href="../rip-unfinalized-dvd/">Unfinalized DVD</a>
+        <a href="../burn-mp4-mkv-to-dvd/">MP4/MKV to DVD</a>
+        <a href="../audio-cd-burner/">Audio CD</a>
+        <a href="./" aria-current="page">CDBurnerXP Alternative</a>
+        <a class="btn btn-primary btn-sm" href="https://github.com/Stevekk11/CDBurner10/releases/download/v10.5.8/CDBurner10-10.5.8-win-x64.msi">Download v10.5.8</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+      <div class="article-header">
+        <nav class="breadcrumbs" aria-label="Breadcrumb">
+          <a href="../">Home</a> / <span>CDBurnerXP Alternative</span>
+        </nav>
+        <h1>The Modern Open-Source CDBurnerXP Alternative for Windows 11</h1>
+        <p class="hero-lead">
+          CDBurnerXP was a classic, but it hasn't been updated for modern Windows 11, ships closed-source, and lacks modern DVD ripping and recovery. CDBurner10 is a ground-up, 100% FOSS (.NET 10 + WinUI 3) successor built for drop-in compatibility.
+        </p>
+        <div class="cta-group" style="justify-content:flex-start">
+          <a class="btn btn-primary" href="https://github.com/Stevekk11/CDBurner10/releases/download/v10.5.8/CDBurner10-10.5.8-win-x64.msi">Download CDBurner10 v10.5.8 (Free)</a>
+        </div>
+      </div>
+
+      <section>
+        <h2>CDBurner10 vs. CDBurnerXP</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>CDBurner10 (v10.5.8)</th>
+                <th>CDBurnerXP</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Source &amp; License</td>
+                <td>100% Open-Source (GPLv3), zero proprietary DLLs</td>
+                <td>Closed-source freeware</td>
+              </tr>
+              <tr>
+                <td>Windows 11 UI &amp; High-DPI</td>
+                <td>Native WinUI 3, Mica backdrop, Dark &amp; Light Mode</td>
+                <td>Legacy WinForms UI, no native Dark Mode</td>
+              </tr>
+              <tr>
+                <td>Compilation Files</td>
+                <td>Opens legacy <code>.dxp</code> &amp; <code>.axp</code> files + imports <code>UserSettings.ini</code></td>
+                <td><code>.dxp</code> / <code>.axp</code></td>
+              </tr>
+              <tr>
+                <td>Command-Line Tool</td>
+                <td><code>cdbxpcmd.exe</code> parity + <code>--dvd-to-mp4</code></td>
+                <td><code>cdbxpcmd.exe</code></td>
+              </tr>
+              <tr>
+                <td>Video DVD &amp; Recovery</td>
+                <td>MP4/MKV to Video DVD, DVD to MP4 (GPU), Unfinalized DVD Recovery</td>
+                <td><code>VIDEO_TS</code> burning only</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Migrating in 2 Minutes</h2>
+        <ol class="steps">
+          <li><strong>Install CDBurner10:</strong> Run <code>CDBurner10-10.5.8-win-x64.msi</code> — no bundled offers or telemetry.</li>
+          <li><strong>Open existing compilations:</strong> Load your saved <code>.dxp</code> (Data) or <code>.axp</code> (Audio) project files directly, or import <code>UserSettings.ini</code> in Settings.</li>
+          <li><strong>Keep your automation scripts:</strong> Point your existing batch or PowerShell scripts to CDBurner10's <code>cdbxpcmd.exe</code>.</li>
+        </ol>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div><strong>CDBurner10</strong> — Free Open-Source Optical Media Suite (GPLv3).</div>
+      <div class="footer-links">
+        <a href="../">Home</a>
+        <a href="../rip-unfinalized-dvd/">Unfinalized DVD</a>
+        <a href="../burn-mp4-mkv-to-dvd/">MP4/MKV to DVD</a>
+        <a href="../audio-cd-burner/">Audio CD</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

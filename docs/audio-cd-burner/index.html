@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Free Audio CD Burner &amp; Ripper with CD-Text for Windows 10/11 — CDBurner10</title>
+  <meta name="description" content="Burn gapless Audio CDs (SAO/DAO-96 &amp; TAO) with CD-Text, ReplayGain, crossfading, and CUE/M3U playlists — or rip CD-DA tracks — using CDBurner10 for Windows 10/11.">
+  <link rel="canonical" href="https://stevekk11.github.io/CDBurner10/audio-cd-burner/">
+  <link rel="icon" href="../assets/favicon.ico" sizes="any">
+  <link rel="stylesheet" href="../styles.css">
+
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="CDBurner10">
+  <meta property="og:title" content="Free Audio CD Burner &amp; Ripper with CD-Text for Windows 10/11">
+  <meta property="og:description" content="Burn gapless Audio CDs with CD-Text, ReplayGain, and crossfading, or rip CD-DA tracks cleanly with CDBurner10.">
+  <meta property="og:url" content="https://stevekk11.github.io/CDBurner10/audio-cd-burner/">
+  <meta property="og:image" content="https://stevekk11.github.io/CDBurner10/assets/og-preview.png">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Free Audio CD Burner &amp; Ripper with CD-Text for Windows 10/11">
+  <meta name="twitter:description" content="Burn gapless Audio CDs with CD-Text, ReplayGain, and crossfading, or rip CD-DA tracks cleanly with CDBurner10.">
+  <meta name="twitter:image" content="https://stevekk11.github.io/CDBurner10/assets/og-preview.png">
+
+  <script type="application/ld+json">
+  [
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "CDBurner10", "item": "https://stevekk11.github.io/CDBurner10/" },
+        { "@type": "ListItem", "position": 2, "name": "Audio CD Burner", "item": "https://stevekk11.github.io/CDBurner10/audio-cd-burner/" }
+      ]
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      "name": "How to Burn an Audio CD with CD-Text on Windows 10/11",
+      "description": "Step-by-step guide to burning gapless Audio CDs with CD-Text, ReplayGain, and playlists using CDBurner10.",
+      "step": [
+        { "@type": "HowToStep", "name": "Open Audio Compilation", "text": "Launch CDBurner10 and open the Audio Compilation view." },
+        { "@type": "HowToStep", "name": "Add audio tracks or playlists", "text": "Drag and drop MP3, FLAC, WAV, OGG, or CUE/M3U/WPL/NRA playlists. Metadata tags populate CD-Text automatically." },
+        { "@type": "HowToStep", "name": "Configure SAO/DAO-96 and ReplayGain", "text": "Choose SAO/DAO-96 for gapless playback and CD-Text support, and optionally enable ReplayGain or crossfading." },
+        { "@type": "HowToStep", "name": "Burn to CD-R", "text": "Insert a blank CD-R, select your write speed, and click Burn." }
+      ]
+    }
+  ]
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav-bar">
+      <a class="brand" href="../">
+        <img src="../assets/logo.webp" alt="CDBurner10 logo" width="32" height="32">
+        <span>CDBurner10</span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="../">Home</a>
+        <a href="../rip-unfinalized-dvd/">Unfinalized DVD</a>
+        <a href="../burn-mp4-mkv-to-dvd/">MP4/MKV to DVD</a>
+        <a href="./" aria-current="page">Audio CD</a>
+        <a href="../cdburnerxp-alternative/">CDBurnerXP Alternative</a>
+        <a class="btn btn-primary btn-sm" href="https://github.com/Stevekk11/CDBurner10/releases/download/v10.5.8/CDBurner10-10.5.8-win-x64.msi">Download v10.5.8</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+      <div class="article-header">
+        <nav class="breadcrumbs" aria-label="Breadcrumb">
+          <a href="../">Home</a> / <span>Audio CD Burner &amp; Ripper</span>
+        </nav>
+        <h1>Free Audio CD Burner &amp; Ripper with CD-Text for Windows 10/11</h1>
+        <p class="hero-lead">
+          Burn standard Red Book Audio CDs that play in any car stereo or hi-fi deck. CDBurner10 supports gapless SAO/DAO-96 burning, CD-Text metadata, ReplayGain normalization, crossfading, and clean CD-DA track ripping.
+        </p>
+        <div class="cta-group" style="justify-content:flex-start">
+          <a class="btn btn-primary" href="https://github.com/Stevekk11/CDBurner10/releases/download/v10.5.8/CDBurner10-10.5.8-win-x64.msi">Download CDBurner10 v10.5.8 (Free)</a>
+        </div>
+      </div>
+
+      <section>
+        <h2>How to Burn an Audio CD with CD-Text</h2>
+        <ol class="steps">
+          <li>
+            <strong>Open Audio Compilation</strong><br>
+            Launch CDBurner10 and click <strong>Audio Compilation</strong> in the navigation pane.
+          </li>
+          <li>
+            <strong>Add tracks or import playlists</strong><br>
+            Drag and drop audio files (decoded via NAudio, TagLibSharp, and optional FFmpeg for exotic codecs) or import <code>.cue</code>, <code>.m3u</code>, <code>.wpl</code>, and <code>.nra</code> playlists. Artist and title tags automatically populate CD-Text fields.
+          </li>
+          <li>
+            <strong>Choose SAO/DAO-96 for gapless playback &amp; CD-Text</strong><br>
+            Select <strong>SAO/DAO-96</strong> (Session/Disc-At-Once) to write CD-Text and eliminate 2-second gaps between live album tracks. Optionally enable ReplayGain volume leveling or smooth crossfading.
+          </li>
+          <li>
+            <strong>Burn your CD-R</strong><br>
+            Insert a blank CD-R, verify the disc capacity bar (up to 80 minutes on standard 700 MB CD-R), and click <strong>Burn</strong>.
+          </li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Ripping Audio CDs to Your PC</h2>
+        <div class="card">
+          <h3>Built-in CD-DA Ripper</h3>
+          <p>Insert any Audio CD and open the <strong>Rip Audio CD</strong> dialog to extract tracks directly via Win32 CD-DA IOCTLs using <strong>Export Tracks to...</strong> — no extra ripping software needed.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div><strong>CDBurner10</strong> — Free Open-Source Optical Media Suite (GPLv3).</div>
+      <div class="footer-links">
+        <a href="../">Home</a>
+        <a href="../rip-unfinalized-dvd/">Unfinalized DVD</a>
+        <a href="../burn-mp4-mkv-to-dvd/">MP4/MKV to DVD</a>
+        <a href="../cdburnerxp-alternative/">CDBurnerXP Alternative</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
