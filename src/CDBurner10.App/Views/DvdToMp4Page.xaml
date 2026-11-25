@@ -183,6 +183,7 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="180" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <CheckBox
@@ -206,9 +207,19 @@
                             Maximum="99"
                             SpinButtonPlacementMode="Compact"
                             ValueChanged="TitleNumberBox_ValueChanged" />
+                        <ComboBox
+                            x:Name="AspectRatioComboBox"
+                            Grid.Column="3"
+                            HorizontalAlignment="Stretch"
+                            Header="Aspect ratio"
+                            SelectedIndex="0">
+                            <ComboBoxItem Content="Auto (Source)" Tag="auto" />
+                            <ComboBoxItem Content="16:9 (Widescreen)" Tag="16:9" />
+                            <ComboBoxItem Content="4:3 (Standard)" Tag="4:3" />
+                        </ComboBox>
                         <TextBlock
                             x:Name="FfmpegStatusText"
-                            Grid.Column="3"
+                            Grid.Column="4"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Bottom"
                             Margin="0,0,0,6"

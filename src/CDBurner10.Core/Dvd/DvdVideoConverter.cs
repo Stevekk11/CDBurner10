@@ -65,6 +65,16 @@ public enum DvdVideoEncoder
     Software
 }
 
+public enum DvdMp4AspectRatio
+{
+    /// <summary>Preserve the aspect ratio flagged by the source DVD/stream.</summary>
+    Auto,
+    /// <summary>Force 16:9 widescreen display aspect ratio (fixes misflagged 4:3 DVD-recorder broadcasts).</summary>
+    Widescreen16x9,
+    /// <summary>Force 4:3 standard display aspect ratio.</summary>
+    Standard4x3
+}
+
 public sealed record DvdMp4Options
 {
     /// <summary>DVD title number (0 = auto-select longest title, 1..99 = specific title).</summary>
@@ -85,6 +95,9 @@ public sealed record DvdMp4Options
 
     /// <summary>Hardware GPU acceleration (Auto) or CPU software (Software).</summary>
     public DvdVideoEncoder Encoder { get; init; } = DvdVideoEncoder.Auto;
+
+    /// <summary>Display aspect ratio override (Auto keeps source flags; 16:9 / 4:3 overrides misflagged DVD-recorder streams).</summary>
+    public DvdMp4AspectRatio AspectRatio { get; init; } = DvdMp4AspectRatio.Auto;
 
     /// <summary>Optional optical drive read speed cap in KB/s (0 = maximum).</summary>
     public int ReadSpeedKBps { get; init; }
@@ -792,12 +805,26 @@ public static class DvdVideoConverter
         bool burnSubtitles = options.SubtitleOrdinal is int subIdx &&
                              subIdx >= 0 && subIdx < info.SubtitleTracks.Count;
 
+        string? darFilter = options.AspectRatio switch
+        {
+            DvdMp4AspectRatio.Widescreen16x9 => "setdar=16/9",
+            DvdMp4AspectRatio.Standard4x3 => "setdar=4/3",
+            _ => null
+        };
+        string? aspectArg = options.AspectRatio switch
+        {
+            DvdMp4AspectRatio.Widescreen16x9 => "16:9",
+            DvdMp4AspectRatio.Standard4x3 => "4:3",
+            _ => null
+        };
+
         if (burnSubtitles)
         {
             int subtitleOrdinal = options.SubtitleOrdinal!.Value;
+            string postOverlay = darFilter is not null ? $",{darFilter}[v]" : "[v]";
             string filter = options.Deinterlace
-                ? $"[0:v]bwdif=0:-1:1[v0];[v0][0:s:{subtitleOrdinal}]overlay=eof_action=pass[v]"
-                : $"[0:v][0:s:{subtitleOrdinal}]overlay=eof_action=pass[v]";
+                ? $"[0:v]bwdif=0:-1:1[v0];[v0][0:s:{subtitleOrdinal}]overlay=eof_action=pass{postOverlay}"
+                : $"[0:v][0:s:{subtitleOrdinal}]overlay=eof_action=pass{postOverlay}";
             args.AddRange(new[]
             {
                 "-filter_complex", filter,
@@ -807,10 +834,18 @@ public static class DvdVideoConverter
         else
         {
             args.AddRange(new[] { "-map", "0:v:0" });
-            if (options.Deinterlace)
+            var vfParts = new List<string>(2);
+            if (options.Deinterlace) vfParts.Add("bwdif=0:-1:1");
+            if (darFilter is not null) vfParts.Add(darFilter);
+            if (vfParts.Count > 0)
             {
-                args.AddRange(new[] { "-vf", "bwdif=0:-1:1" });
+                args.AddRange(new[] { "-vf", string.Join(",", vfParts) });
             }
+        }
+
+        if (aspectArg is not null)
+        {
+            args.AddRange(new[] { "-aspect", aspectArg });
         }
 
         DvdAudioTrack? selectedAudio = null;

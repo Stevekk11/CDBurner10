@@ -252,6 +252,44 @@ public class DvdAuthoringTests
         Assert.Contains("[vout]", bitmapArgs);
     }
 
+    [Theory]
+    [InlineData(DvdMp4AspectRatio.Auto, false, null)]
+    [InlineData(DvdMp4AspectRatio.Widescreen16x9, false, "16:9")]
+    [InlineData(DvdMp4AspectRatio.Standard4x3, true, "4:3")]
+    public void DvdVideoConverter_BuildFfmpegArguments_AppliesAspectRatioOverride(
+        DvdMp4AspectRatio aspectRatio,
+        bool withSubtitles,
+        string? expectedAspect)
+    {
+        var info = new DvdVideoInfo(
+            TimeSpan.FromMinutes(10),
+            720,
+            576,
+            [new DvdAudioTrack(1, 0, "ac3", 2, "ces", null)],
+            withSubtitles ? [new DvdSubtitleTrack(2, 0, "dvd_subtitle", "ces")] : []);
+
+        var options = new DvdMp4Options
+        {
+            AspectRatio = aspectRatio,
+            SubtitleOrdinal = withSubtitles ? 0 : null,
+            Encoder = DvdVideoEncoder.Software
+        };
+
+        var args = DvdVideoConverter.BuildFfmpegArguments("E:\\", "out.mp4", info, options, "libx264", isPreWalkedMpegStream: false, isPipedMpegStream: true);
+
+        if (expectedAspect is null)
+        {
+            Assert.DoesNotContain("-aspect", args);
+        }
+        else
+        {
+            AssertArgPair(args.ToArray(), "-aspect", expectedAspect);
+            string expectedDar = expectedAspect == "16:9" ? "setdar=16/9" : "setdar=4/3";
+            string filter = GetArgValue(args.ToArray(), withSubtitles ? "-filter_complex" : "-vf");
+            Assert.Contains(expectedDar, filter);
+        }
+    }
+
     [Fact]
     public async Task EndToEnd_AuthorVideoTsAndSaveIso_ProducesFfprobeCompliantDvdVideo()
     {

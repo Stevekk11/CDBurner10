@@ -557,6 +557,13 @@ public sealed partial class DvdToMp4Page : Page
             ? (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0
             : 0;
 
+        var aspectRatio = (AspectRatioComboBox.SelectedItem as ComboBoxItem)?.Tag as string switch
+        {
+            "16:9" => DvdMp4AspectRatio.Widescreen16x9,
+            "4:3" => DvdMp4AspectRatio.Standard4x3,
+            _ => DvdMp4AspectRatio.Auto
+        };
+
         var options = new DvdMp4Options
         {
             TitleNumber = GetSelectedTitleNumber(),
@@ -567,6 +574,7 @@ public sealed partial class DvdToMp4Page : Page
             StereoDownmix = StereoDownmixCheckBox.IsChecked == true,
             Deinterlace = DeinterlaceCheckBox.IsChecked == true,
             Encoder = encoderPref,
+            AspectRatio = aspectRatio,
             ReadSpeedKBps = readSpeed
         };
 
@@ -724,6 +732,7 @@ public sealed partial class DvdToMp4Page : Page
         EncoderComboBox.IsEnabled = !busy;
         StereoDownmixCheckBox.IsEnabled = !busy;
         DeinterlaceCheckBox.IsEnabled = !busy;
+        AspectRatioComboBox.IsEnabled = !busy;
         TitleNumberBox.IsEnabled = !busy && _info is not { IsUnfinalizedRaw: true } and not { IsPreWalkedStream: true };
     }
 
