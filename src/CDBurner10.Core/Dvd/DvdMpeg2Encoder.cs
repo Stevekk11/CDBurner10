@@ -190,14 +190,26 @@ public static class DvdMpeg2Encoder
             (false, false) => "8/9"
         };
 
+        int displayWidth = (isPal, is16x9) switch
+        {
+            (true, true) => 1024,
+            (true, false) => 768,
+            (false, true) => 854,
+            (false, false) => 640
+        };
+
         int clampedBitrate = Math.Clamp(
             videoBitrateKbps,
             DvdMediaProber.MinVideoBitrateKbps,
             DvdMediaProber.MaxVideoBitrateKbps);
 
+        // Normalize source SAR to square pixels, fit & pad inside the display aspect frame
+        // (1024x576 / 768x576 for PAL, 854x480 / 640x480 for NTSC), then scale to 720xH anamorphic DVD.
         string videoFilter =
-            $"scale={width}:{height}:force_original_aspect_ratio=decrease," +
-            $"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2," +
+            "scale=trunc(iw*sar/2)*2:ih,setsar=1," +
+            $"scale={displayWidth}:{height}:force_original_aspect_ratio=decrease," +
+            $"pad={displayWidth}:{height}:(ow-iw)/2:(oh-ih)/2," +
+            $"scale={width}:{height}," +
             $"setsar={sar}";
 
         if (options.SubtitleMode == DvdSubtitleMode.ExternalSrt &&

@@ -115,13 +115,14 @@ public class DvdAuthoringTests
     }
 
     [Theory]
-    [InlineData(DvdVideoStandard.Pal, DvdAspectRatio.Widescreen16x9, "720:576", "25", "15", "16:9", "64/45")]
-    [InlineData(DvdVideoStandard.Pal, DvdAspectRatio.Standard4x3, "720:576", "25", "15", "4:3", "16/15")]
-    [InlineData(DvdVideoStandard.Ntsc, DvdAspectRatio.Widescreen16x9, "720:480", "30000/1001", "18", "16:9", "32/27")]
-    [InlineData(DvdVideoStandard.Ntsc, DvdAspectRatio.Standard4x3, "720:480", "30000/1001", "18", "4:3", "8/9")]
+    [InlineData(DvdVideoStandard.Pal, DvdAspectRatio.Widescreen16x9, "1024:576", "720:576", "25", "15", "16:9", "64/45")]
+    [InlineData(DvdVideoStandard.Pal, DvdAspectRatio.Standard4x3, "768:576", "720:576", "25", "15", "4:3", "16/15")]
+    [InlineData(DvdVideoStandard.Ntsc, DvdAspectRatio.Widescreen16x9, "854:480", "720:480", "30000/1001", "18", "16:9", "32/27")]
+    [InlineData(DvdVideoStandard.Ntsc, DvdAspectRatio.Standard4x3, "640:480", "720:480", "30000/1001", "18", "4:3", "8/9")]
     public void BuildFfmpegArguments_StandardAndAspect_ProducesCompliantArgs(
         DvdVideoStandard standard,
         DvdAspectRatio aspect,
+        string expectedDisplayScale,
         string expectedScale,
         string expectedRate,
         string expectedGop,
@@ -153,8 +154,9 @@ public class DvdAuthoringTests
         AssertArgPair(args, "-map", "0:a:0?");
 
         string vf = GetArgValue(args, "-vf");
-        Assert.Contains($"scale={expectedScale}:force_original_aspect_ratio=decrease", vf);
-        Assert.Contains($"pad={expectedScale}:(ow-iw)/2:(oh-ih)/2", vf);
+        Assert.Contains($"scale={expectedDisplayScale}:force_original_aspect_ratio=decrease", vf);
+        Assert.Contains($"pad={expectedDisplayScale}:(ow-iw)/2:(oh-ih)/2", vf);
+        Assert.Contains($"scale={expectedScale}", vf);
         Assert.Contains($"setsar={expectedSar}", vf);
         Assert.Equal(@"C:\Temp\out.mpg", args[^1]);
     }
