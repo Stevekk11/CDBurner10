@@ -557,7 +557,7 @@ public sealed partial class DvdToMp4Page : Page
             ? (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0
             : 0;
 
-        var aspectRatio = (AspectRatioComboBox.SelectedItem as ComboBoxItem)?.Tag as string switch
+        var aspectRatio = ((AspectRatioComboBox.SelectedItem as ComboBoxItem)?.Tag as string) switch
         {
             "16:9" => DvdMp4AspectRatio.Widescreen16x9,
             "4:3" => DvdMp4AspectRatio.Standard4x3,
