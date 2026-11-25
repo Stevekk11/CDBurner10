@@ -229,6 +229,30 @@ public class DvdAuthoringTests
     }
 
     [Fact]
+    public void BuildFfmpegArguments_EmbeddedSubtitles_TextVsBitmap()
+    {
+        var source = new DvdSourceVideo(@"C:\Videos\movie.mkv");
+        var options = new DvdAuthoringOptions
+        {
+            Sources = [source],
+            Standard = DvdVideoStandard.Pal,
+            SubtitleMode = DvdSubtitleMode.Embedded
+        };
+
+        var textSubInfo = new DvdMediaInfo(source.FilePath, TimeSpan.FromSeconds(30), 1920, 1080, 16.0 / 9.0, 1, 1, "1920x1080", FirstSubtitleIsBitmap: false);
+        string[] textArgs = DvdMpeg2Encoder.BuildFfmpegArguments(source, textSubInfo, options, 5500, DvdAspectRatio.Widescreen16x9, @"C:\Temp\text.mpg");
+        string vf = GetArgValue(textArgs, "-vf");
+        Assert.Contains(",subtitles='C\\:/Videos/movie.mkv':si=0,", vf);
+        Assert.DoesNotContain("-filter_complex", textArgs);
+
+        var bitmapSubInfo = new DvdMediaInfo(source.FilePath, TimeSpan.FromSeconds(30), 1920, 1080, 16.0 / 9.0, 1, 1, "1920x1080", FirstSubtitleIsBitmap: true);
+        string[] bitmapArgs = DvdMpeg2Encoder.BuildFfmpegArguments(source, bitmapSubInfo, options, 5500, DvdAspectRatio.Widescreen16x9, @"C:\Temp\bmp.mpg");
+        string fc = GetArgValue(bitmapArgs, "-filter_complex");
+        Assert.Contains("overlay=(W-w)/2:(H-h)/2", fc);
+        Assert.Contains("[vout]", bitmapArgs);
+    }
+
+    [Fact]
     public async Task EndToEnd_AuthorVideoTsAndSaveIso_ProducesFfprobeCompliantDvdVideo()
     {
         if (!DvdVideoConverter.IsAvailable)

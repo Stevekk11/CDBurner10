@@ -208,6 +208,7 @@ public static class DvdMediaProber
         double fallbackStreamDuration = 0;
         int audioCount = 0;
         int subtitleCount = 0;
+        bool firstSubBitmap = false;
 
         if (root.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
         {
@@ -248,6 +249,11 @@ public static class DvdMediaProber
                 }
                 else if (codecType == "subtitle")
                 {
+                    if (subtitleCount == 0 && stream.TryGetProperty("codec_name", out var subCodecEl))
+                    {
+                        string subCodec = subCodecEl.GetString() ?? string.Empty;
+                        firstSubBitmap = subCodec is "dvd_subtitle" or "hdmv_pgs_subtitle" or "dvb_subtitle" or "xsub";
+                    }
                     subtitleCount++;
                 }
             }
@@ -270,7 +276,8 @@ public static class DvdMediaProber
             dar,
             audioCount,
             subtitleCount,
-            summary);
+            summary,
+            firstSubBitmap);
     }
 
     private static int CalculateBestFitBitrateKbps(

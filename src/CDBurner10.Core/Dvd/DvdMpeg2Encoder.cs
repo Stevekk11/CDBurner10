@@ -204,30 +204,49 @@ public static class DvdMpeg2Encoder
             DvdMediaProber.MaxVideoBitrateKbps);
 
         // Normalize source SAR to square pixels, fit & pad inside the display aspect frame
-        // (1024x576 / 768x576 for PAL, 854x480 / 640x480 for NTSC), then scale to 720xH anamorphic DVD.
-        string videoFilter =
+        // (1024x576 / 768x576 for PAL, 854x480 / 640x480 for NTSC), burn any subtitles in square-pixel
+        // space so glyphs aren't stretched, then scale to 720xH anamorphic DVD.
+        string preSubFilter =
             "scale=trunc(iw*sar/2)*2:ih,setsar=1," +
             $"scale={displayWidth}:{height}:force_original_aspect_ratio=decrease," +
-            $"pad={displayWidth}:{height}:(ow-iw)/2:(oh-ih)/2," +
-            $"scale={width}:{height}," +
-            $"setsar={sar}";
+            $"pad={displayWidth}:{height}:(ow-iw)/2:(oh-ih)/2";
+        string postSubFilter = $"scale={width}:{height},setsar={sar}";
 
-        if (options.SubtitleMode == DvdSubtitleMode.ExternalSrt &&
-            !string.IsNullOrWhiteSpace(source.ExternalSrtPath) &&
-            File.Exists(source.ExternalSrtPath))
-        {
-            string escapedSrt = EscapeSubtitleFilterPath(source.ExternalSrtPath);
-            videoFilter += $",subtitles='{escapedSrt}'";
-        }
+        bool burnExternalSrt = options.SubtitleMode == DvdSubtitleMode.ExternalSrt &&
+                               !string.IsNullOrWhiteSpace(source.ExternalSrtPath) &&
+                               File.Exists(source.ExternalSrtPath);
+        bool burnEmbeddedSubs = !burnExternalSubsConflict(burnExternalSrt) &&
+                                includeEmbeddedSubtitles &&
+                                options.SubtitleMode == DvdSubtitleMode.Embedded &&
+                                info.SubtitleStreamCount > 0;
+        bool burnBitmapEmbedded = burnEmbeddedSubs && info.FirstSubtitleIsBitmap;
+
+        static bool burnExternalSubsConflict(bool ext) => ext;
 
         var args = new List<string>(48)
         {
             "-y",
             "-hide_banner",
             "-nostdin",
-            "-i", source.FilePath,
-            "-map", "0:v:0"
+            "-i", source.FilePath
         };
+
+        if (burnBitmapEmbedded)
+        {
+            string filterComplex =
+                $"[0:v:0]{preSubFilter}[vbase];" +
+                $"[0:s:0]scale={displayWidth}:{height}[sub];" +
+                $"[vbase][sub]overlay=(W-w)/2:(H-h)/2,{postSubFilter}[vout]";
+            args.Add("-filter_complex");
+            args.Add(filterComplex);
+            args.Add("-map");
+            args.Add("[vout]");
+        }
+        else
+        {
+            args.Add("-map");
+            args.Add("0:v:0");
+        }
 
         if (options.AudioSelection == DvdAudioSelection.AllTracks)
         {
@@ -251,15 +270,6 @@ public static class DvdMpeg2Encoder
             args.Add("0:a:0?");
         }
 
-        bool mapEmbeddedSubs = includeEmbeddedSubtitles &&
-                               options.SubtitleMode == DvdSubtitleMode.Embedded &&
-                               info.SubtitleStreamCount > 0;
-        if (mapEmbeddedSubs)
-        {
-            args.Add("-map");
-            args.Add("0:s:0?");
-        }
-
         args.AddRange(new[]
         {
             "-f", "dvd",
@@ -272,22 +282,33 @@ public static class DvdMpeg2Encoder
             "-packetsize", "2048",
             "-pix_fmt", "yuv420p",
             "-r", frameRate,
-            "-g", gopSize,
-            "-vf", videoFilter,
-            "-aspect", aspect,
-            "-c:a", "ac3",
-            "-ar", "48000",
-            "-b:a", "192k"
+            "-g", gopSize
         });
 
-        if (mapEmbeddedSubs)
+        if (!burnBitmapEmbedded)
         {
-            args.Add("-c:s");
-            args.Add("dvdsub");
+            string videoFilter = preSubFilter;
+            if (burnExternalSrt)
+            {
+                string escapedSrt = EscapeSubtitleFilterPath(source.ExternalSrtPath!);
+                videoFilter += $",subtitles='{escapedSrt}'";
+            }
+            else if (burnEmbeddedSubs)
+            {
+                string escapedSrc = EscapeSubtitleFilterPath(source.FilePath);
+                videoFilter += $",subtitles='{escapedSrc}':si=0";
+            }
+            videoFilter += $",{postSubFilter}";
+            args.Add("-vf");
+            args.Add(videoFilter);
         }
 
         args.AddRange(new[]
         {
+            "-aspect", aspect,
+            "-c:a", "ac3",
+            "-ar", "48000",
+            "-b:a", "192k",
             "-progress", "pipe:1",
             "-nostats",
             outputMpgPath

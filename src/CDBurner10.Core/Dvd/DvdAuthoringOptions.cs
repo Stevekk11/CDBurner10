@@ -104,6 +104,7 @@ public sealed record DvdSourceVideo(string FilePath, string? ExternalSrtPath = n
 /// <param name="AudioStreamCount">Number of audio streams detected.</param>
 /// <param name="SubtitleStreamCount">Number of subtitle streams detected.</param>
 /// <param name="Summary">Human-readable summary of resolution, duration, and streams.</param>
+/// <param name="FirstSubtitleIsBitmap">True if the first embedded subtitle stream uses a bitmap codec (e.g. PGS/VobSub).</param>
 public sealed record DvdMediaInfo(
     string FilePath,
     TimeSpan Duration,
@@ -112,7 +113,8 @@ public sealed record DvdMediaInfo(
     double DisplayAspectRatio,
     int AudioStreamCount,
     int SubtitleStreamCount,
-    string Summary);
+    string Summary,
+    bool FirstSubtitleIsBitmap = false);
 
 /// <summary>
 /// Configuration options for authoring and burning/saving a Video DVD from media files.
