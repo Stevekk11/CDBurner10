@@ -83,29 +83,12 @@
           MSI Installer (64.1 MiB) • Windows 10/11 64-bit • GNU GPL v3.0-or-later • <a href="https://github.com/Stevekk11/CDBurner10/releases/tag/v10.5.9">Release Notes</a>
         </p>
 
-        <div class="showcase-wrap">
-          <div class="showcase-tabs" role="tablist" aria-label="Application screenshots">
-            <button type="button" class="showcase-tab is-active" role="tab" aria-selected="true"
-              data-src="assets/screenshot-home.jpg"
-              data-width="1024" data-height="660"
-              data-alt="CDBurner10 Home screen showing Data Disc, Video DVD, Audio CD, Burn ISO Image, Copy Disc, DVD to MP4, and Erase Disc">Home</button>
-            <button type="button" class="showcase-tab" role="tab" aria-selected="false"
-              data-src="assets/screenshot-audio-cd.jpg"
-              data-width="1024" data-height="664"
-              data-alt="CDBurner10 Audio CD Compilation with built-in file browser, track list, player bar, and disc capacity meter">Audio CD</button>
-            <button type="button" class="showcase-tab" role="tab" aria-selected="false"
-              data-src="assets/screenshot-dvd-to-mp4.jpg"
-              data-width="1024" data-height="658"
-              data-alt="CDBurner10 DVD to MP4 converter with single-pass optical drive ripping, aspect ratio override, and GPU encoding">DVD to MP4</button>
-            <button type="button" class="showcase-tab" role="tab" aria-selected="false"
-              data-src="assets/screenshot-cover-designer.jpg"
-              data-width="1024" data-height="658"
-              data-alt="CDBurner10 Cover and Label Designer with live scaled CD/DVD/Blu-ray print preview and PNG export">Cover Designer</button>
-          </div>
+        <figure class="showcase-wrap">
           <div class="showcase-frame">
-            <img id="showcase-img" src="assets/screenshot-home.jpg" alt="CDBurner10 Home screen showing Data Disc, Video DVD, Audio CD, Burn ISO Image, Copy Disc, DVD to MP4, and Erase Disc" width="1024" height="660" loading="eager">
+            <img src="assets/screenshot-home.jpg" alt="CDBurner10 Home screen showing Data Disc, Video DVD, Audio CD, Burn ISO Image, Copy Disc, DVD to MP4, and Erase Disc" width="1024" height="660" loading="eager">
           </div>
-        </div>
+          <figcaption class="showcase-caption">Home — Data Disc, Video DVD, Audio CD, ISO Burning, Copy Disc, DVD to MP4, and Erase Disc</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -151,6 +134,13 @@
             <a class="card-link" href="cdburnerxp-alternative/">Compare with CDBurnerXP →</a>
           </article>
         </div>
+
+        <figure class="showcase-wrap">
+          <div class="showcase-frame">
+            <img src="assets/screenshot-audio-cd.jpg" alt="CDBurner10 Audio CD Compilation with built-in file browser, track list, player bar, and disc capacity meter" width="1024" height="664" loading="lazy">
+          </div>
+          <figcaption class="showcase-caption">Audio CD Compilation — built-in explorer, ReplayGain, inline track preview, and 74/80/90/99 min capacity bar</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -196,6 +186,13 @@
             </tbody>
           </table>
         </div>
+
+        <figure class="showcase-wrap">
+          <div class="showcase-frame">
+            <img src="assets/screenshot-dvd-to-mp4.jpg" alt="CDBurner10 DVD to MP4 converter with single-pass optical drive ripping, aspect ratio override, and GPU encoding" width="1024" height="658" loading="lazy">
+          </div>
+          <figcaption class="showcase-caption">DVD to MP4 — single-pass optical drive ripping, aspect ratio override, deinterlacing, and GPU H.264 encoding</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -207,6 +204,13 @@
 cdbxpcmd.exe --burn-iso -device:0 -file:backup.iso -verify
 cdbxpcmd.exe --burn-data -device:0 -folder:C:\Archive -name:ARCHIVE_2026
 cdbxpcmd.exe --dvd-to-mp4 -device:0 -output:C:\Videos\movie.mp4</code></pre>
+
+        <figure class="showcase-wrap">
+          <div class="showcase-frame">
+            <img src="assets/screenshot-cover-designer.jpg" alt="CDBurner10 Cover and Label Designer with live scaled CD/DVD/Blu-ray print preview and PNG export" width="1024" height="658" loading="lazy">
+          </div>
+          <figcaption class="showcase-caption">Cover &amp; Label Designer — live 300 DPI scaled preview, auto-populated track lists, and PNG export</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -239,26 +243,5 @@ cdbxpcmd.exe --dvd-to-mp4 -device:0 -output:C:\Videos\movie.mp4</code></pre>
       </div>
     </div>
   </footer>
-  <script>
-    (function () {
-      var img = document.getElementById('showcase-img');
-      var tabs = document.querySelectorAll('.showcase-tab');
-      if (!img || !tabs.length) return;
-      tabs.forEach(function (tab) {
-        tab.addEventListener('click', function () {
-          tabs.forEach(function (t) {
-            t.classList.remove('is-active');
-            t.setAttribute('aria-selected', 'false');
-          });
-          tab.classList.add('is-active');
-          tab.setAttribute('aria-selected', 'true');
-          img.src = tab.dataset.src;
-          img.width = tab.dataset.width;
-          img.height = tab.dataset.height;
-          img.alt = tab.dataset.alt;
-        });
-      });
-    })();
-  </script>
 </body>
 </html>

@@ -196,37 +196,8 @@ h1 {
 }
 
 .showcase-wrap {
-  margin: 2.5rem auto 0;
+  margin: 2.25rem auto 0;
   max-width: 980px;
-}
-.showcase-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-bottom: 0.9rem;
-}
-.showcase-tab {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 600;
-  padding: 0.45rem 0.95rem;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.showcase-tab:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
-.showcase-tab.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
 }
 .showcase-frame {
   border-radius: var(--radius);
@@ -239,6 +210,12 @@ h1 {
   display: block;
   width: 100%;
   height: auto;
+}
+.showcase-caption {
+  margin-top: 0.65rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-muted);
 }
 
 /* Sections & Cards */
