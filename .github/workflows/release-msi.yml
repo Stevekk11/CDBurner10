@@ -65,6 +65,43 @@ jobs:
           wix eula accept wix7
           wix extension add -g WixToolset.UI.wixext
 
+      - name: Sync version in About dialog, manifests, and build props
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          $fullVersion = "${{ steps.version.outputs.full_version }}"
+          $shortVersion = "${{ steps.version.outputs.short_version }}"
+
+          # 1. Directory.Build.props
+          $propsPath = "Directory.Build.props"
+          $props = Get-Content -Raw $propsPath
+          $props = [regex]::Replace($props, '<(Version|AssemblyVersion|FileVersion)>[^<]+</\1>', "<`$1>$fullVersion</`$1>")
+          Set-Content -Path $propsPath -Value $props -NoNewline -Encoding UTF8
+
+          # 2. App & CLI manifests
+          foreach ($manifestPath in @("src/CDBurner10.App/app.manifest", "src/CDBurner10.Cli/app.manifest")) {
+            if (Test-Path $manifestPath) {
+              $manifest = Get-Content -Raw $manifestPath
+              $manifest = [regex]::Replace($manifest, '(<assemblyIdentity\b[^>]*\bversion=")[^"]+(")', "`${1}$fullVersion`${2}")
+              Set-Content -Path $manifestPath -Value $manifest -NoNewline -Encoding UTF8
+            }
+          }
+
+          # 3. AboutDialog.xaml
+          $aboutPath = "src/CDBurner10.App/Views/Dialogs/AboutDialog.xaml"
+          $about = Get-Content -Raw $aboutPath
+          $about = [regex]::Replace($about, 'Version\s+[0-9]+\.[0-9]+\.[0-9]+', "Version $shortVersion")
+          Set-Content -Path $aboutPath -Value $about -NoNewline -Encoding UTF8
+
+          # 4. Localized About strings
+          Get-ChildItem "src/CDBurner10.App/Strings/*.json" | ForEach-Object {
+            $json = Get-Content -Raw $_.FullName
+            $json = [regex]::Replace($json, '(Version|Verze|Versión|Wersja|Verzia)\s+[0-9]+\.[0-9]+\.[0-9]+', "`$1 $shortVersion")
+            Set-Content -Path $_.FullName -Value $json -NoNewline -Encoding UTF8
+          }
+
+          Write-Host "Synced app version to $fullVersion (About: $shortVersion)"
+
       - name: Build MSI
         if: steps.version.outputs.should_release == 'true'
         shell: pwsh
