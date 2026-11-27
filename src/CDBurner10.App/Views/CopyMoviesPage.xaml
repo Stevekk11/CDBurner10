@@ -104,9 +104,7 @@
                                         <CheckBox
                                             Grid.Column="0"
                                             MinWidth="0"
-                                            IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
-                                            Checked="MovieRowCheckBox_Changed"
-                                            Unchecked="MovieRowCheckBox_Changed" />
+                                            IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock
                                                 Text="{x:Bind FileName}"
@@ -159,15 +157,15 @@
                                 Click="BrowseFolderButton_Click" />
                         </Grid>
 
-                        <StackPanel Orientation="Horizontal" Spacing="20">
+                        <StackPanel Spacing="4">
                             <CheckBox x:Name="PreserveSubfoldersCheckBox" Content="Preserve subfolder structure" IsChecked="False" />
                             <CheckBox x:Name="IncludeSubtitlesCheckBox" Content="Copy matching subtitles (.srt, .sub, .ass)" IsChecked="True" />
                             <CheckBox x:Name="OverwriteExistingCheckBox" Content="Overwrite existing files" IsChecked="False" />
+                            <CheckBox
+                                x:Name="ConvertLegacyToMp4CheckBox"
+                                Content="Convert legacy formats (.avi, .wmv, .mpg, .vob, ...) to MP4 in parallel while copying"
+                                IsChecked="False" />
                         </StackPanel>
-                        <CheckBox
-                            x:Name="ConvertLegacyToMp4CheckBox"
-                            Content="Convert legacy formats (.avi, .wmv, .mpg, .vob, ...) to MP4 in parallel while copying"
-                            IsChecked="False" />
                     </StackPanel>
                 </Border>
 

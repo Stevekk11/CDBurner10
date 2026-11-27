@@ -156,7 +156,15 @@ public sealed partial class CopyMoviesPage : Page
             if (ct.IsCancellationRequested) return;
 
             foreach (var item in found)
-                _rows.Add(new MovieListRow(item));
+            {
+                var row = new MovieListRow(item);
+                row.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(MovieListRow.IsSelected))
+                        UpdateSelectionSummary();
+                };
+                _rows.Add(row);
+            }
 
             if (found.Count == 0)
             {
@@ -196,8 +204,6 @@ public sealed partial class CopyMoviesPage : Page
         foreach (var row in _rows) row.IsSelected = false;
         UpdateSelectionSummary();
     }
-
-    private void MovieRowCheckBox_Changed(object sender, RoutedEventArgs e) => UpdateSelectionSummary();
 
     private void DestinationFolderBox_TextChanged(object sender, TextChangedEventArgs e) => UpdateSelectionSummary();
 
