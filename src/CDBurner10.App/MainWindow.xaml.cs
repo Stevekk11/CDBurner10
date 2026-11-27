@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window
         ["erase"] = typeof(EraseDiscPage),
         ["convert"] = typeof(ConvertIsoPage),
         ["mp4"] = typeof(DvdToMp4Page),
+        ["movies"] = typeof(CopyMoviesPage),
         ["info"] = typeof(DriveDiscInfoPage),
         ["cover"] = typeof(CoverPrintPage),
         ["settings"] = typeof(SettingsPage)

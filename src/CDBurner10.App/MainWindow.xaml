@@ -108,6 +108,11 @@
                         <FontIcon Glyph="&#xE8B2;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Copy Movies" Tag="movies">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE714;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Disc &amp; Drive Info" Tag="info">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE946;" />
