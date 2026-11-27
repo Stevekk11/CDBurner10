@@ -241,6 +241,7 @@ public sealed partial class CopyMoviesPage : Page
         _isBusy = true;
         _copyCts = new CancellationTokenSource();
         SetControlsEnabled(false);
+        UpdateSelectionSummary();
         OpenFolderButton.Visibility = Visibility.Collapsed;
         StatusInfoBar.IsOpen = false;
         CopyProgressBar.Value = 0;
@@ -255,6 +256,7 @@ public sealed partial class CopyMoviesPage : Page
 
         var progress = new Progress<MovieCopyProgress>(p =>
         {
+            if (_copyCts?.IsCancellationRequested == true) return;
             CopyProgressBar.Value = p.Percent;
             ProgressText.Text = p.Message;
         });
@@ -293,10 +295,14 @@ public sealed partial class CopyMoviesPage : Page
         }
         catch (OperationCanceledException)
         {
+            CopyProgressBar.Visibility = Visibility.Collapsed;
+            ProgressText.Visibility = Visibility.Collapsed;
             ShowStatus(InfoBarSeverity.Informational, "Copy Cancelled", "Movie copy was cancelled.");
         }
         catch (Exception ex)
         {
+            CopyProgressBar.Visibility = Visibility.Collapsed;
+            ProgressText.Visibility = Visibility.Collapsed;
             ShowStatus(InfoBarSeverity.Error, "Copy Failed", ex.Message);
         }
         finally

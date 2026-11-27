@@ -226,7 +226,17 @@ public sealed class DiscMovieCopier
                     await foreach (var job in convertChannel.Reader.ReadAllAsync(ct))
                     {
                         Volatile.Write(ref activeConversionName, job.DisplayName);
-                        bool ok = await ConvertToMp4Async(ffmpeg, job.SourcePath, job.OutputMp4Path, ct);
+                        bool ok = false;
+                        try
+                        {
+                            ok = await ConvertToMp4Async(ffmpeg, job.SourcePath, job.OutputMp4Path, ct);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            try { if (File.Exists(job.OutputMp4Path)) File.Delete(job.OutputMp4Path); } catch { }
+                            throw;
+                        }
+
                         if (ok)
                         {
                             Interlocked.Increment(ref filesConverted);
@@ -263,14 +273,14 @@ public sealed class DiscMovieCopier
                     bool copiedOk = false;
                     try
                     {
-                        using var src = new FileStream(item.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read, buffer.Length, FileOptions.SequentialScan);
-                        using var dst = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, FileOptions.SequentialScan);
+                        using var src = new FileStream(item.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read, buffer.Length, FileOptions.SequentialScan | FileOptions.Asynchronous);
+                        using var dst = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, FileOptions.SequentialScan | FileOptions.Asynchronous);
 
                         int read;
-                        while ((read = src.Read(buffer, 0, buffer.Length)) > 0)
+                        while ((read = await src.ReadAsync(buffer, ct)) > 0)
                         {
                             ct.ThrowIfCancellationRequested();
-                            dst.Write(buffer, 0, read);
+                            await dst.WriteAsync(buffer.AsMemory(0, read), ct);
                             bytesCopied += read;
 
                             if (sw.ElapsedMilliseconds - lastReportMs >= 200)
@@ -327,6 +337,15 @@ public sealed class DiscMovieCopier
                         convertChannel.Writer.TryWrite((targetPath, mp4Target, item.FileName));
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                convertChannel?.Writer.TryComplete();
+                if (convertWorker is not null)
+                {
+                    try { await convertWorker; } catch (OperationCanceledException) { } catch { }
+                }
+                throw;
             }
             finally
             {
