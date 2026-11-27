@@ -251,6 +251,7 @@ public sealed partial class CopyMoviesPage : Page
         bool preserveSubfolders = PreserveSubfoldersCheckBox.IsChecked == true;
         bool includeSubtitles = IncludeSubtitlesCheckBox.IsChecked == true;
         bool overwriteExisting = OverwriteExistingCheckBox.IsChecked == true;
+        bool convertLegacyToMp4 = ConvertLegacyToMp4CheckBox.IsChecked == true;
 
         var progress = new Progress<MovieCopyProgress>(p =>
         {
@@ -267,18 +268,20 @@ public sealed partial class CopyMoviesPage : Page
                 includeSubtitles,
                 overwriteExisting,
                 progress,
-                _copyCts.Token);
+                _copyCts.Token,
+                convertLegacyToMp4);
 
             _lastDestinationFolder = result.DestinationFolder;
             OpenFolderButton.Visibility = Visibility.Visible;
 
             string subNote = result.SubtitlesCopied > 0 ? $" and {result.SubtitlesCopied} subtitle file(s)" : string.Empty;
+            string convNote = result.FilesConverted > 0 ? $" ({result.FilesConverted} converted to MP4)" : string.Empty;
             if (result.FailedFiles.Count == 0)
             {
                 ShowStatus(
                     InfoBarSeverity.Success,
                     "Movies Copied",
-                    $"Copied {result.FilesCopied} movie(s){subNote} ({FormatHelper.FormatBytes(result.TotalBytesCopied)}) to {result.DestinationFolder}.");
+                    $"Copied {result.FilesCopied} movie(s){subNote}{convNote} ({FormatHelper.FormatBytes(result.TotalBytesCopied)}) to {result.DestinationFolder}.");
             }
             else
             {
@@ -330,6 +333,7 @@ public sealed partial class CopyMoviesPage : Page
         PreserveSubfoldersCheckBox.IsEnabled = enabled;
         IncludeSubtitlesCheckBox.IsEnabled = enabled;
         OverwriteExistingCheckBox.IsEnabled = enabled;
+        ConvertLegacyToMp4CheckBox.IsEnabled = enabled;
         CancelCopyButton.IsEnabled = !enabled;
     }
 

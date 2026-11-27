@@ -93,6 +93,18 @@ public sealed class DiscMovieCopierTests : IDisposable
         Assert.True(File.Exists(Path.Combine(destDir, "Holiday", "2024", "beach.mp4")));
     }
 
+    [Fact]
+    public void IsLegacyFormat_DistinguishesNativeMp4FromLegacyVideo()
+    {
+        Assert.False(DiscMovieCopier.IsLegacyFormat("movie.mp4"));
+        Assert.False(DiscMovieCopier.IsLegacyFormat("movie.M4V"));
+        Assert.False(DiscMovieCopier.IsLegacyFormat("readme.txt"));
+        Assert.True(DiscMovieCopier.IsLegacyFormat("old.avi"));
+        Assert.True(DiscMovieCopier.IsLegacyFormat("clip.WMV"));
+        Assert.True(DiscMovieCopier.IsLegacyFormat("dvd.vob"));
+        Assert.True(DiscMovieCopier.IsLegacyFormat("rip.mkv"));
+    }
+
     public void Dispose()
     {
         try { if (Directory.Exists(_rootDir)) Directory.Delete(_rootDir, recursive: true); } catch { }

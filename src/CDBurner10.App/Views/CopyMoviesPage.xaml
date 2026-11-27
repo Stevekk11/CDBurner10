@@ -164,6 +164,10 @@
                             <CheckBox x:Name="IncludeSubtitlesCheckBox" Content="Copy matching subtitles (.srt, .sub, .ass)" IsChecked="True" />
                             <CheckBox x:Name="OverwriteExistingCheckBox" Content="Overwrite existing files" IsChecked="False" />
                         </StackPanel>
+                        <CheckBox
+                            x:Name="ConvertLegacyToMp4CheckBox"
+                            Content="Convert legacy formats (.avi, .wmv, .mpg, .vob, ...) to MP4 in parallel while copying"
+                            IsChecked="False" />
                     </StackPanel>
                 </Border>
 
