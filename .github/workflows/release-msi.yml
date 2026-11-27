@@ -37,13 +37,8 @@ jobs:
 
           Write-Host "Detected version: $fullVersion (tag: $tag)"
 
-          $tagExists = $false
-          git rev-parse --verify --quiet "refs/tags/$tag" | Out-Null
-          if ($LASTEXITCODE -eq 0) {
-            $tagExists = $true
-          }
-
-          if ($tagExists) {
+          $existingTag = git tag -l $tag
+          if ($existingTag) {
             Write-Host "Tag $tag already exists. Skipping MSI build and release."
             "should_release=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           } else {
