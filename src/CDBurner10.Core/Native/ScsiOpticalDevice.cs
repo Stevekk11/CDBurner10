@@ -907,13 +907,15 @@ internal static class ScsiOpticalDevice
 
         SetReadWriteSpeed(handle, readSpeedKBps, 0);
 
-        if (sectorCount <= 0)
+        var capBuf = new byte[8];
+        byte[] capCdb = [0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        if (SendScsiCommand(handle, capCdb, capBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
         {
-            var capBuf = new byte[8];
-            byte[] capCdb = [0x25, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            if (SendScsiCommand(handle, capCdb, capBuf, SCSI_IOCTL_DATA_IN, 10, out _, out _, out _))
+            long capacitySectors = BinaryPrimitives.ReadUInt32BigEndian(capBuf.AsSpan(0, 4)) + 1L - startLba;
+            if (capacitySectors > 0)
             {
-                sectorCount = BinaryPrimitives.ReadUInt32BigEndian(capBuf.AsSpan(0, 4)) + 1L - startLba;
+                if (sectorCount <= 0 || capacitySectors < sectorCount)
+                    sectorCount = capacitySectors;
             }
         }
         if (sectorCount <= 0)
@@ -940,8 +942,10 @@ internal static class ScsiOpticalDevice
             long readSoFar = 0;
             int lastPct = -1;
             int lastReportedErrors = 0;
+            long lastFallbackReportMs = 0;
+            bool reachedEndOfDisc = false;
 
-            while (readSoFar < sectorCount)
+            while (readSoFar < sectorCount && !reachedEndOfDisc)
             {
                 ct.ThrowIfCancellationRequested();
                 int toRead = (int)Math.Min(chunkSectors, sectorCount - readSoFar);
@@ -949,10 +953,11 @@ internal static class ScsiOpticalDevice
 
                 // Try 1 fast multi-sector read; if any sector in the chunk fails, step through
                 // individual sectors using the exact configured retry count (1 + retries).
-                bool ok = TryReadSectors10(handle, (uint)lba, (ushort)toRead, buffer, maxAttempts: 1);
+                bool ok = TryReadSectors10(handle, (uint)lba, (ushort)toRead, buffer, maxAttempts: 1, ct, out _);
                 if (ok)
                 {
                     output.Write(buffer, 0, toRead * DataSectorSize);
+                    readSoFar += toRead;
                 }
                 else
                 {
@@ -960,18 +965,43 @@ internal static class ScsiOpticalDevice
                     {
                         ct.ThrowIfCancellationRequested();
                         long sectorLba = lba + s;
-                        if (!TryReadSectors10(handle, (uint)sectorLba, 1, singleSector, singleSectorAttempts))
+                        if (!TryReadSectors10(handle, (uint)sectorLba, 1, singleSector, singleSectorAttempts, ct, out bool outOfRange))
                         {
+                            if (outOfRange && readSoFar > 0)
+                            {
+                                // Drive reported Illegal Request / LBA Out of Range after reading valid data:
+                                // we have reached the actual readable end of the disc.
+                                reachedEndOfDisc = true;
+                                break;
+                            }
+
                             if (!ignoreBadBlocks)
                                 throw new IOException($"Unreadable sector at LBA {sectorLba} after {singleSectorAttempts} attempt(s).");
                             Array.Clear(singleSector, 0, singleSector.Length);
                             tracker.RecordBadSector(sectorLba);
                         }
                         output.Write(singleSector, 0, DataSectorSize);
+                        readSoFar++;
+
+                        long nowMs = sw.ElapsedMilliseconds;
+                        if (nowMs - lastFallbackReportMs >= 500 || tracker.BadSectorCount != lastReportedErrors)
+                        {
+                            lastFallbackReportMs = nowMs;
+                            lastReportedErrors = tracker.BadSectorCount;
+                            int curPct = (int)Math.Clamp(readSoFar * 100L / sectorCount, 0, 100);
+                            lastPct = curPct;
+                            string errSuffix = tracker.BadSectorCount > 0
+                                ? $" (Read errors: {tracker.BadSectorCount})"
+                                : string.Empty;
+                            progress?.Report(new BurnProgress(
+                                BurnPhase.Grabbing,
+                                curPct,
+                                Message: $"Reading disc... {curPct}% (sector {sectorLba:N0}){errSuffix}",
+                                ReadErrors: tracker.BadSectorCount));
+                        }
                     }
                 }
 
-                readSoFar += toRead;
                 int pct = (int)Math.Clamp(readSoFar * 100L / sectorCount, 0, 100);
                 if (pct != lastPct || tracker.BadSectorCount != lastReportedErrors)
                 {
@@ -1066,8 +1096,19 @@ internal static class ScsiOpticalDevice
         }
     }
 
-    private static bool TryReadSectors10(SafeFileHandle handle, uint lba, ushort count, byte[] buffer, int maxAttempts)
+    private static bool TryReadSectors10(SafeFileHandle handle, uint lba, ushort count, byte[] buffer, int maxAttempts) =>
+        TryReadSectors10(handle, lba, count, buffer, maxAttempts, CancellationToken.None, out _);
+
+    private static bool TryReadSectors10(
+        SafeFileHandle handle,
+        uint lba,
+        ushort count,
+        byte[] buffer,
+        int maxAttempts,
+        CancellationToken ct,
+        out bool lbaOutOfRange)
     {
+        lbaOutOfRange = false;
         byte[] cdb =
         [
             0x28, 0x00,
@@ -1080,8 +1121,18 @@ internal static class ScsiOpticalDevice
         int attempts = Math.Max(1, maxAttempts);
         for (int attempt = 0; attempt < attempts; attempt++)
         {
-            if (SendScsiCommand(handle, cdb, buffer, SCSI_IOCTL_DATA_IN, 30, out _, out _, out _))
+            ct.ThrowIfCancellationRequested();
+            if (SendScsiCommand(handle, cdb, buffer, SCSI_IOCTL_DATA_IN, 30, out byte sk, out byte asc, out _))
                 return true;
+
+            // Sense Key 0x05 (Illegal Request) + ASC 0x21 (Logical Block Address Out of Range):
+            // Retrying will never succeed because the LBA is past the end of the medium.
+            if (sk == 0x05 && asc == 0x21)
+            {
+                lbaOutOfRange = true;
+                return false;
+            }
+
             if (attempt + 1 < attempts)
                 Thread.Sleep(25);
         }

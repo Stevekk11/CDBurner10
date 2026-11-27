@@ -102,13 +102,15 @@ public static class DvdCssReader
                 else
                 {
                     // 64-sector chunk failed — fall back to 1-sector reads with retries and optional zero-fill
+                    bool reachedEndOfDisc = false;
+                    long lastFallbackReportMs = 0;
                     for (int s = 0; s < blocksRequested; s++)
                     {
                         ct.ThrowIfCancellationRequested();
                         long sectorLba = lba + s;
-                        if (expectedBlocks <= 0 && writtenBytes > 0 && LibDvdCss.dvdcss_seek(dvd, (int)sectorLba, 0) < 0)
+                        if (writtenBytes > 0 && LibDvdCss.dvdcss_seek(dvd, (int)sectorLba, 0) < 0)
                         {
-                            expectedBlocks = sectorLba;
+                            reachedEndOfDisc = true;
                             break;
                         }
 
@@ -130,9 +132,29 @@ public static class DvdCssReader
                         }
 
                         writtenBytes += BlockSize;
+                        lba = sectorLba + 1;
+
+                        long nowMs = stopwatch.ElapsedMilliseconds;
+                        if (nowMs - lastFallbackReportMs >= 500 || tracker.BadSectorCount != lastReportedErrors)
+                        {
+                            lastFallbackReportMs = nowMs;
+                            lastReportedErrors = tracker.BadSectorCount;
+                            int curPct = ComputePercent(writtenBytes, expectedBytes);
+                            lastPct = curPct;
+                            string errSuffix = tracker.BadSectorCount > 0
+                                ? $" (Read errors: {tracker.BadSectorCount})"
+                                : string.Empty;
+                            progress?.Report(new BurnProgress(
+                                BurnPhase.Grabbing,
+                                curPct,
+                                TimeRemaining: EstimateRemaining(writtenBytes, expectedBytes, stopwatch.Elapsed),
+                                Message: $"Decrypting CSS DVD... {curPct}% (sector {sectorLba:N0}){errSuffix}",
+                                ReadErrors: tracker.BadSectorCount));
+                        }
                     }
 
-                    lba += blocksRequested;
+                    if (reachedEndOfDisc)
+                        break;
                 }
 
                 int pct = ComputePercent(writtenBytes, expectedBytes);
