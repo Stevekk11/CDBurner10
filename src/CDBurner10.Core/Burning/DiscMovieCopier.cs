@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using CDBurner10.Core.Dvd;
 
@@ -20,7 +22,11 @@ public sealed record MovieCopyProgress(
     long BytesCopied,
     long TotalBytes,
     int Percent,
-    string Message);
+    string Message,
+    int ConversionPercent = 0,
+    int ConvertedCount = 0,
+    int TotalToConvert = 0,
+    string? ConvertingFileName = null);
 
 public sealed record MovieCopyResult(
     int FilesCopied,
@@ -201,6 +207,11 @@ public sealed class DiscMovieCopier
             int filesCopied = 0;
             int subtitlesCopied = 0;
             int filesConverted = 0;
+            int totalToConvert = ffmpegPath is not null ? items.Count(i => IsLegacyFormat(i.FileName)) : 0;
+            int conversionCompleted = 0;
+            int currentFileConvertPct = 0;
+            int currentCopyIdx = 0;
+            string currentCopyName = string.Empty;
             var failedFiles = new List<string>();
             object failedLock = new();
             var buffer = new byte[1024 * 1024]; // 1 MB buffer for optical streaming
@@ -226,16 +237,26 @@ public sealed class DiscMovieCopier
                     await foreach (var job in convertChannel.Reader.ReadAllAsync(ct))
                     {
                         Volatile.Write(ref activeConversionName, job.DisplayName);
+                        Volatile.Write(ref currentFileConvertPct, 0);
+                        ReportProgress(Volatile.Read(ref currentCopyIdx), items.Count, Volatile.Read(ref currentCopyName), Volatile.Read(ref bytesCopied), totalBytes, force: true);
+
                         bool ok = false;
                         try
                         {
-                            ok = await ConvertToMp4Async(ffmpeg, job.SourcePath, job.OutputMp4Path, ct);
+                            ok = await ConvertToMp4Async(ffmpeg, job.SourcePath, job.OutputMp4Path, filePct =>
+                            {
+                                Volatile.Write(ref currentFileConvertPct, filePct);
+                                ReportProgress(Volatile.Read(ref currentCopyIdx), items.Count, Volatile.Read(ref currentCopyName), Volatile.Read(ref bytesCopied), totalBytes, force: false);
+                            }, ct);
                         }
                         catch (OperationCanceledException)
                         {
                             try { if (File.Exists(job.OutputMp4Path)) File.Delete(job.OutputMp4Path); } catch { }
                             throw;
                         }
+
+                        Interlocked.Increment(ref conversionCompleted);
+                        Volatile.Write(ref currentFileConvertPct, 0);
 
                         if (ok)
                         {
@@ -248,6 +269,8 @@ public sealed class DiscMovieCopier
                             lock (failedLock)
                                 failedFiles.Add($"{job.DisplayName}: MP4 conversion failed (original file kept)");
                         }
+
+                        ReportProgress(Volatile.Read(ref currentCopyIdx), items.Count, Volatile.Read(ref currentCopyName), Volatile.Read(ref bytesCopied), totalBytes, force: true);
                     }
                     Volatile.Write(ref activeConversionName, null);
                 }, ct);
@@ -268,7 +291,9 @@ public sealed class DiscMovieCopier
                     string targetPath = ResolveTargetPath(targetDir, item.FileName, overwriteExisting);
                     string targetStem = Path.GetFileNameWithoutExtension(targetPath);
 
-                    ReportProgress(i + 1, items.Count, item.FileName, bytesCopied, totalBytes, force: true);
+                    Volatile.Write(ref currentCopyIdx, i + 1);
+                    Volatile.Write(ref currentCopyName, item.FileName);
+                    ReportProgress(i + 1, items.Count, item.FileName, Volatile.Read(ref bytesCopied), totalBytes, force: true);
 
                     bool copiedOk = false;
                     try
@@ -281,11 +306,11 @@ public sealed class DiscMovieCopier
                         {
                             ct.ThrowIfCancellationRequested();
                             await dst.WriteAsync(buffer.AsMemory(0, read), ct);
-                            bytesCopied += read;
+                            Interlocked.Add(ref bytesCopied, read);
 
-                            if (sw.ElapsedMilliseconds - lastReportMs >= 200)
+                            if (sw.ElapsedMilliseconds - Volatile.Read(ref lastReportMs) >= 200)
                             {
-                                ReportProgress(i + 1, items.Count, item.FileName, bytesCopied, totalBytes, force: false);
+                                ReportProgress(i + 1, items.Count, item.FileName, Volatile.Read(ref bytesCopied), totalBytes, force: false);
                             }
                         }
 
@@ -354,44 +379,64 @@ public sealed class DiscMovieCopier
 
             if (convertWorker is not null)
             {
+                Volatile.Write(ref currentCopyName, string.Empty);
                 if (!convertWorker.IsCompleted)
                 {
-                    string? conv = Volatile.Read(ref activeConversionName);
-                    progress?.Report(new MovieCopyProgress(
-                        items.Count, items.Count, conv ?? string.Empty,
-                        totalBytes > 0 ? totalBytes : bytesCopied, totalBytes, 99,
-                        $"Finishing MP4 conversion{(string.IsNullOrEmpty(conv) ? "" : $": {conv}")}..."));
+                    ReportProgress(items.Count, items.Count, string.Empty, totalBytes > 0 ? totalBytes : Volatile.Read(ref bytesCopied), totalBytes, force: true);
                 }
                 await convertWorker;
             }
 
-            ReportProgress(items.Count, items.Count, string.Empty, totalBytes > 0 ? totalBytes : bytesCopied, totalBytes, force: true);
-            return new MovieCopyResult(filesCopied, subtitlesCopied, bytesCopied, destinationFolder, failedFiles, filesConverted);
+            ReportProgress(items.Count, items.Count, string.Empty, totalBytes > 0 ? totalBytes : Volatile.Read(ref bytesCopied), totalBytes, force: true);
+            return new MovieCopyResult(filesCopied, subtitlesCopied, Volatile.Read(ref bytesCopied), destinationFolder, failedFiles, filesConverted);
 
             void ReportProgress(int fileIdx, int totalFiles, string fileName, long copied, long total, bool force)
             {
-                if (!force && sw.ElapsedMilliseconds - lastReportMs < 200)
+                long nowMs = sw.ElapsedMilliseconds;
+                if (!force && nowMs - Volatile.Read(ref lastReportMs) < 200)
                     return;
-                lastReportMs = sw.ElapsedMilliseconds;
+                Volatile.Write(ref lastReportMs, nowMs);
 
                 int pct = total > 0
                     ? (int)Math.Clamp(copied * 100L / total, 0, 100)
                     : (totalFiles > 0 ? (int)Math.Clamp(fileIdx * 100L / totalFiles, 0, 100) : 100);
                 string? conv = Volatile.Read(ref activeConversionName);
-                string convSuffix = !string.IsNullOrEmpty(conv) ? $" • Converting: {conv}" : string.Empty;
-                string msg = string.IsNullOrEmpty(fileName)
-                    ? $"Completed copying {filesCopied} movie(s)."
-                    : $"Copying {fileIdx}/{totalFiles}: {fileName} ({pct}%){convSuffix}";
+                int doneConv = Volatile.Read(ref conversionCompleted);
+                int curConvPct = Volatile.Read(ref currentFileConvertPct);
+                int overallConvPct = totalToConvert > 0
+                    ? Math.Clamp((doneConv * 100 + (conv is not null ? curConvPct : 0)) / totalToConvert, 0, 100)
+                    : 0;
 
-                progress?.Report(new MovieCopyProgress(fileIdx, totalFiles, fileName, copied, total, pct, msg));
+                string msg = string.IsNullOrEmpty(fileName)
+                    ? (conv is not null
+                        ? $"Copied all {filesCopied} movie(s). Finishing MP4 conversion..."
+                        : $"Completed copying {filesCopied} movie(s).")
+                    : $"Copying {fileIdx}/{totalFiles}: {fileName} ({pct}%)";
+
+                progress?.Report(new MovieCopyProgress(
+                    fileIdx,
+                    totalFiles,
+                    fileName,
+                    copied,
+                    total,
+                    pct,
+                    msg,
+                    ConversionPercent: overallConvPct,
+                    ConvertedCount: doneConv,
+                    TotalToConvert: totalToConvert,
+                    ConvertingFileName: conv));
             }
         }, ct);
     }
+
+    private static readonly Regex DurationRegex = new(@"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", RegexOptions.Compiled);
+    private static readonly Regex TimeRegex = new(@"time=(\d+):(\d+):(\d+(?:\.\d+)?)", RegexOptions.Compiled);
 
     private static async Task<bool> ConvertToMp4Async(
         string ffmpegPath,
         string sourcePath,
         string outputMp4Path,
+        Action<int>? onFilePercent,
         CancellationToken ct)
     {
         var psi = new ProcessStartInfo
@@ -430,14 +475,44 @@ public sealed class DiscMovieCopier
             try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
         });
 
-        // Drain stderr so the buffer never blocks FFmpeg
-        var stderrTask = proc.StandardError.ReadToEndAsync(ct);
+        double totalSeconds = 0;
+        var stderrTask = Task.Run(async () =>
+        {
+            while (await proc.StandardError.ReadLineAsync(ct) is { } line)
+            {
+                if (totalSeconds <= 0)
+                {
+                    var dm = DurationRegex.Match(line);
+                    if (dm.Success)
+                        totalSeconds = ParseFfmpegSeconds(dm);
+                }
+
+                if (totalSeconds > 0 && onFilePercent is not null)
+                {
+                    var tm = TimeRegex.Match(line);
+                    if (tm.Success)
+                    {
+                        double cur = ParseFfmpegSeconds(tm);
+                        int pct = (int)Math.Clamp(cur * 100.0 / totalSeconds, 0, 100);
+                        onFilePercent(pct);
+                    }
+                }
+            }
+        }, ct);
         var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
 
         await proc.WaitForExitAsync(ct);
         try { await Task.WhenAll(stderrTask, stdoutTask); } catch { }
 
         return proc.ExitCode == 0 && File.Exists(outputMp4Path) && new FileInfo(outputMp4Path).Length > 0;
+    }
+
+    private static double ParseFfmpegSeconds(Match m)
+    {
+        double h = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+        double min = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+        double sec = double.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture);
+        return h * 3600 + min * 60 + sec;
     }
 
     internal static string ResolveTargetPath(string targetDir, string fileName, bool overwriteExisting)

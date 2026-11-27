@@ -254,11 +254,44 @@ public sealed partial class CopyMoviesPage : Page
         bool overwriteExisting = OverwriteExistingCheckBox.IsChecked == true;
         bool convertLegacyToMp4 = ConvertLegacyToMp4CheckBox.IsChecked == true;
 
+        int legacyCount = convertLegacyToMp4 ? selectedItems.Count(i => DiscMovieCopier.IsLegacyFormat(i.FileName)) : 0;
+        if (legacyCount > 0)
+        {
+            ConvertProgressBar.Value = 0;
+            ConvertProgressBar.Visibility = Visibility.Visible;
+            ConvertProgressText.Text = $"MP4 conversion (0/{legacyCount}): Waiting for first copied file...";
+            ConvertProgressText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ConvertProgressBar.Visibility = Visibility.Collapsed;
+            ConvertProgressText.Visibility = Visibility.Collapsed;
+        }
+
+        using var op = AppServices.Current.Operations.Begin(
+            "Copy Movies",
+            $"Copying {selectedItems.Count} movie(s) to {destFolder}...");
+
         var progress = new Progress<MovieCopyProgress>(p =>
         {
             if (_copyCts?.IsCancellationRequested == true) return;
             CopyProgressBar.Value = p.Percent;
             ProgressText.Text = p.Message;
+
+            if (p.TotalToConvert > 0)
+            {
+                ConvertProgressBar.Value = p.ConversionPercent;
+                ConvertProgressText.Text = !string.IsNullOrEmpty(p.ConvertingFileName)
+                    ? $"MP4 conversion ({Math.Min(p.ConvertedCount + 1, p.TotalToConvert)}/{p.TotalToConvert}): {p.ConvertingFileName} ({p.ConversionPercent}%)"
+                    : p.ConvertedCount >= p.TotalToConvert
+                        ? $"MP4 conversion complete ({p.ConvertedCount}/{p.TotalToConvert})."
+                        : $"MP4 conversion ({p.ConvertedCount}/{p.TotalToConvert}): Waiting for next copied file...";
+            }
+
+            double overallPct = p.TotalToConvert > 0
+                ? (p.Percent + p.ConversionPercent) / 2.0
+                : p.Percent;
+            op.Report(overallPct, BurnPhase.Grabbing);
         });
 
         try
@@ -280,30 +313,34 @@ public sealed partial class CopyMoviesPage : Page
             string convNote = result.FilesConverted > 0 ? $" ({result.FilesConverted} converted to MP4)" : string.Empty;
             if (result.FailedFiles.Count == 0)
             {
-                ShowStatus(
-                    InfoBarSeverity.Success,
-                    "Movies Copied",
-                    $"Copied {result.FilesCopied} movie(s){subNote}{convNote} ({FormatHelper.FormatBytes(result.TotalBytesCopied)}) to {result.DestinationFolder}.");
+                string summary = $"Copied {result.FilesCopied} movie(s){subNote}{convNote} ({FormatHelper.FormatBytes(result.TotalBytesCopied)}) to {result.DestinationFolder}.";
+                ShowStatus(InfoBarSeverity.Success, "Movies Copied", summary);
+                op.Complete(summary);
             }
             else
             {
-                ShowStatus(
-                    InfoBarSeverity.Warning,
-                    "Completed with Some Errors",
-                    $"Copied {result.FilesCopied} movie(s){subNote}, but {result.FailedFiles.Count} file(s) failed: {string.Join("; ", result.FailedFiles.Take(3))}");
+                string summary = $"Copied {result.FilesCopied} movie(s){subNote}, but {result.FailedFiles.Count} file(s) failed: {string.Join("; ", result.FailedFiles.Take(3))}";
+                ShowStatus(InfoBarSeverity.Warning, "Completed with Some Errors", summary);
+                op.Complete(summary);
             }
         }
         catch (OperationCanceledException)
         {
             CopyProgressBar.Visibility = Visibility.Collapsed;
             ProgressText.Visibility = Visibility.Collapsed;
+            ConvertProgressBar.Visibility = Visibility.Collapsed;
+            ConvertProgressText.Visibility = Visibility.Collapsed;
             ShowStatus(InfoBarSeverity.Informational, "Copy Cancelled", "Movie copy was cancelled.");
+            op.Cancel();
         }
         catch (Exception ex)
         {
             CopyProgressBar.Visibility = Visibility.Collapsed;
             ProgressText.Visibility = Visibility.Collapsed;
+            ConvertProgressBar.Visibility = Visibility.Collapsed;
+            ConvertProgressText.Visibility = Visibility.Collapsed;
             ShowStatus(InfoBarSeverity.Error, "Copy Failed", ex.Message);
+            op.Fail(ex.Message);
         }
         finally
         {

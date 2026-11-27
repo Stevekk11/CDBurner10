@@ -179,6 +179,12 @@
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Visibility="Collapsed" />
+                    <ProgressBar x:Name="ConvertProgressBar" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" />
+                    <TextBlock
+                        x:Name="ConvertProgressText"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Visibility="Collapsed" />
 
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button
