@@ -14,6 +14,7 @@ public sealed partial class AppServices : ObservableObject, IDisposable
     public AudioPlayerService AudioPlayer { get; } = new();
     public DataCompilation ActiveDataCompilation { get; } = new();
     public AudioCompilation ActiveAudioCompilation { get; } = new();
+    public OperationTracker Operations { get; } = new();
     public ObservableCollection<DriveModel> Drives { get; } = [];
 
     /// <summary>
@@ -254,6 +255,7 @@ public sealed partial class AppServices : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        Operations.Dispose();
         SaveAudioSession();
         AudioPlayer.Dispose();
         try { BassAudioEngine.Shutdown(); } catch { }

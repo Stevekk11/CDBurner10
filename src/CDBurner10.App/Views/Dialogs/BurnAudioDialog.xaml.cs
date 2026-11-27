@@ -142,6 +142,10 @@ public sealed partial class BurnAudioDialog : ContentDialog
         _cts = new CancellationTokenSource();
         string lastLogged = string.Empty;
 
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Burn Audio CD"),
+            $"Burning Audio CD ({_compilation.Tracks.Count} track(s)) to {drive.DisplayName}...");
+
         var progress = new Progress<BurnProgress>(p =>
         {
             BurnProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
@@ -149,6 +153,7 @@ public sealed partial class BurnAudioDialog : ContentDialog
             BufferText.Text = $"Device Buffer: {p.BufferPercent}%";
             var rem = p.TimeRemaining > TimeSpan.Zero ? $" • Remaining: {FormatHelper.FormatDuration(p.TimeRemaining)}" : string.Empty;
             TimeText.Text = $"Elapsed: {FormatHelper.FormatDuration(sw.Elapsed)}{rem}";
+            op.Report(p);
             if (!string.IsNullOrWhiteSpace(p.Message) && p.Message != lastLogged && p.Phase != BurnPhase.Burning)
             {
                 lastLogged = p.Message;
@@ -164,6 +169,7 @@ public sealed partial class BurnAudioDialog : ContentDialog
             StatusInfoBar.Title = "Audio CD Burned";
             StatusInfoBar.Message = "Your Audio CD has been created successfully.";
             StatusInfoBar.IsOpen = true;
+            op.Complete("Your Audio CD has been created successfully.");
 
             if (ShutdownCheckBox.IsChecked == true && !_cts.IsCancellationRequested)
             {
@@ -173,6 +179,7 @@ public sealed partial class BurnAudioDialog : ContentDialog
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             AppendLog("Burn cancelled by user.");
             StatusInfoBar.Severity = InfoBarSeverity.Warning;
             StatusInfoBar.Title = "Cancelled";
@@ -181,6 +188,7 @@ public sealed partial class BurnAudioDialog : ContentDialog
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             AppendLog($"ERROR: {ex.Message}");
             StatusInfoBar.Severity = InfoBarSeverity.Error;
             StatusInfoBar.Title = "Burn Failed";

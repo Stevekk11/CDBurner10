@@ -11,6 +11,8 @@ namespace CDBurner10.App.Views;
 
 public sealed partial class SettingsPage : Page
 {
+    public const string GitHubUrl = "https://github.com/Stevekk11/CDBurner10";
+
     private bool _loading = true;
 
     public SettingsPage()
@@ -44,6 +46,10 @@ public sealed partial class SettingsPage : Page
                 _ => 0
             };
         }
+
+        // Notifications
+        ShowNotificationsToggle.IsOn = s.ShowNotifications;
+        ShowProgressNotificationsToggle.IsOn = s.ShowProgressNotifications;
 
         // General
         SelectComboByTag(LanguageComboBox, s.AppLanguage);
@@ -81,6 +87,9 @@ public sealed partial class SettingsPage : Page
     {
         if (_loading) return;
         var s = AppServices.Current.Settings.Current;
+
+        s.ShowNotifications = ShowNotificationsToggle.IsOn;
+        s.ShowProgressNotifications = ShowProgressNotificationsToggle.IsOn;
 
         string prevLang = s.AppLanguage;
         s.AppLanguage = GetSelectedTag(LanguageComboBox);
@@ -227,6 +236,11 @@ public sealed partial class SettingsPage : Page
         StatusInfoBar.IsOpen = true;
     }
 
+    private void GitHubButton_Click(object sender, RoutedEventArgs e)
+    {
+        OpenExternalUrl(GitHubUrl);
+    }
+
     private async void AboutButton_Click(object sender, RoutedEventArgs e)
     {
         var activeTheme = (App.MainWindow?.Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Default;
@@ -238,6 +252,17 @@ public sealed partial class SettingsPage : Page
         };
         LocalizationService.Current.TranslateTree(dialog);
         await dialog.ShowAsync();
+    }
+
+    internal static void OpenExternalUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+        }
     }
 
     private static void SelectComboByTag(ComboBox combo, string tag)

@@ -61,6 +61,7 @@ public sealed partial class MainWindow : Window
         };
 
         HookDeviceChangeMonitor();
+        Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
 
         _ = InitializeAndNavigateAsync();
@@ -85,6 +86,16 @@ public sealed partial class MainWindow : Window
             _trayService.RemoveTrayIcon();
             Close();
         });
+
+        AppServices.Current.Operations.AttachWindow(hwnd, DispatcherQueue, _trayService);
+    }
+
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState != WindowActivationState.Deactivated)
+        {
+            AppServices.Current.Operations.OnWindowActivated();
+        }
     }
 
     private void HookDeviceChangeMonitor()
@@ -342,6 +353,7 @@ public sealed partial class MainWindow : Window
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
         _dropBoxWindow?.Close();
+        AppServices.Current.Operations.DetachWindow();
         _trayService?.Dispose();
         _deviceMonitor?.Dispose();
         AppServices.Current.Dispose();

@@ -208,13 +208,25 @@ public sealed partial class DataCompilationPage : Page
             ViewModel.DiscLabel,
             new Dictionary<string, IList<string>> { ["ISO Disc Image"] = [".iso"] });
         if (string.IsNullOrEmpty(path)) return;
+
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Save Data ISO"),
+            $"Saving ISO image to '{Path.GetFileName(path)}'...");
+        var progress = new Progress<BurnProgress>(p => op.Report(p));
+
         try
         {
-            await ViewModel.Burner.SaveIsoAsync(path);
+            await ViewModel.Burner.SaveIsoAsync(path, progress: progress);
+            op.Complete($"Created '{Path.GetFileName(path)}'.");
             await AppServices.Current.Dialogs.ShowMessageAsync(XamlRoot, "ISO Saved", $"ISO image created successfully:\n{path}");
+        }
+        catch (OperationCanceledException)
+        {
+            op.Cancel();
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             await AppServices.Current.Dialogs.ShowMessageAsync(XamlRoot, "Save ISO Failed", ex.Message);
         }
     }

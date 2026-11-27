@@ -145,6 +145,10 @@ public sealed partial class EraseDiscPage : Page
         ProgressTimeText.Text = string.Empty;
 
         _cts = new CancellationTokenSource();
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Erase Disc"),
+            $"Erasing {_currentDisc.DiscTypeDescription} in {drive.DisplayName} ({(fullErase ? "Full" : "Fast")})...");
+
         var progress = new Progress<EraseProgress>(p =>
         {
             EraseProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
@@ -152,19 +156,23 @@ public sealed partial class EraseDiscPage : Page
             ProgressTimeText.Text = p.TimeRemaining > TimeSpan.Zero
                 ? $"Remaining: {FormatHelper.FormatDuration(p.TimeRemaining)}"
                 : $"{p.Percent}%";
+            op.Report(p);
         });
 
         try
         {
             await _eraser.EraseAsync(drive, fullErase, EjectAfterEraseCheckBox.IsChecked == true, progress, _cts.Token);
             ShowStatus(InfoBarSeverity.Success, "Disc Erased", "The disc has been erased successfully.");
+            op.Complete("The disc has been erased successfully.");
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "Erase operation was cancelled.");
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             ShowStatus(InfoBarSeverity.Error, "Erase Failed", ex.Message);
         }
         finally

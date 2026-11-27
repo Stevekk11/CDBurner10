@@ -1,6 +1,7 @@
 using CDBurner10.App.Services;
 using CDBurner10.Core.Audio;
 using CDBurner10.Core.Audio.Cue;
+using CDBurner10.Core.Burning;
 using CDBurner10.Core.Utilities;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -79,6 +80,10 @@ public sealed partial class SplitCueDialog : ContentDialog
         SplitProgressBar.Visibility = Visibility.Visible;
         SplitProgressBar.Value = 0;
 
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Split CUE Sheet"),
+            $"Splitting '{Path.GetFileName(_cueFilePath)}' ({_cueSheet.Tracks.Count} track(s))...");
+
         try
         {
             var outDir = OutputFolderBox.Text?.Trim();
@@ -99,7 +104,12 @@ public sealed partial class SplitCueDialog : ContentDialog
                 .Select(t => (t.GetIndex(1) ?? t.Indices.FirstOrDefault()).TotalSeconds)
                 .ToArray();
 
-            var progress = new Progress<double>(p => SplitProgressBar.Value = Math.Clamp(p, 0, 100));
+            var progress = new Progress<double>(p =>
+            {
+                double clamped = Math.Clamp(p, 0, 100);
+                SplitProgressBar.Value = clamped;
+                op.Report(clamped, BurnPhase.Converting);
+            });
             var created = await Task.Run(() =>
             {
                 using var converter = new CrossfadingAudioConverter { TargetSampleRate = 44100 };
@@ -119,9 +129,17 @@ public sealed partial class SplitCueDialog : ContentDialog
             });
 
             OutputFiles = created;
+            op.Complete($"Created {created.Count} WAV track(s).");
+        }
+        catch (OperationCanceledException)
+        {
+            op.Cancel();
+            args.Cancel = true;
+            IsPrimaryButtonEnabled = true;
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             args.Cancel = true;
             StatusInfoBar.Severity = InfoBarSeverity.Error;
             StatusInfoBar.Title = "CUE Split Failed";

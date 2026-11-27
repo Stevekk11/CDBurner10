@@ -1,4 +1,5 @@
 using CDBurner10.App.Services;
+using CDBurner10.Core.Burning;
 using CDBurner10.Core.Iso;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -115,11 +116,16 @@ public sealed partial class ConvertIsoPage : Page
         ProgressPercentText.Text = "0%";
 
         _cts = new CancellationTokenSource();
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Convert to ISO"),
+            $"Converting '{Path.GetFileName(src)}' to '{Path.GetFileName(dst)}'...");
+
         var progress = new Progress<double>(pct =>
         {
             double clamped = Math.Clamp(pct, 0, 100);
             ConvertProgressBar.Value = clamped;
             ProgressPercentText.Text = $"{clamped:0}%";
+            op.Report(clamped, BurnPhase.Converting);
         });
 
         try
@@ -129,14 +135,17 @@ public sealed partial class ConvertIsoPage : Page
             ProgressStatusText.Text = "Conversion complete.";
             BurnResultButton.Visibility = Visibility.Visible;
             ShowStatus(InfoBarSeverity.Success, "Converted Successfully", $"Created '{Path.GetFileName(dst)}'.");
+            op.Complete($"Created '{Path.GetFileName(dst)}'.");
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             ProgressStatusText.Text = "Conversion cancelled.";
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "Image conversion was cancelled.");
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             ProgressStatusText.Text = "Conversion failed.";
             ShowStatus(InfoBarSeverity.Error, "Conversion Failed", ex.Message);
         }

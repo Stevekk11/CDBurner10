@@ -4,7 +4,8 @@ namespace CDBurner10.App.Services;
 
 /// <summary>
 /// Pure-Win32 Shell_NotifyIconW tray icon with subclassed window message handling
-/// for restoring or exiting CDBurner10 when ExitToNotify ("Minimize / exit to notification tray") is enabled.
+/// for restoring or exiting CDBurner10 when ExitToNotify ("Minimize / exit to notification tray") is enabled,
+/// plus fallback balloon/toast notifications when Windows App Notifications are unavailable.
 /// </summary>
 public sealed class TrayIconService : IDisposable
 {
@@ -13,12 +14,21 @@ public sealed class TrayIconService : IDisposable
     private const uint WM_LBUTTONDBLCLK = 0x0203;
     private const uint WM_RBUTTONUP = 0x0205;
     private const uint WM_CONTEXTMENU = 0x007B;
+    private const uint NIN_BALLOONUSERCLICK = 0x0405;
 
     private const uint NIM_ADD = 0x00000000;
+    private const uint NIM_MODIFY = 0x00000001;
     private const uint NIM_DELETE = 0x00000002;
     private const uint NIF_MESSAGE = 0x00000001;
     private const uint NIF_ICON = 0x00000002;
     private const uint NIF_TIP = 0x00000004;
+    private const uint NIF_INFO = 0x00000010;
+
+    private const uint NIIF_INFO = 0x00000001;
+    private const uint NIIF_WARNING = 0x00000002;
+    private const uint NIIF_ERROR = 0x00000003;
+    private const uint NIIF_NOSOUND = 0x00000010;
+    private const uint NIIF_RESPECT_QUIET_TIME = 0x00000080;
 
     private const uint TPM_RETURNCMD = 0x0100;
     private const uint TPM_RIGHTBUTTON = 0x0002;
@@ -32,12 +42,15 @@ public sealed class TrayIconService : IDisposable
     private const uint CmdRestore = 1001;
     private const uint CmdExit = 1002;
 
+    private readonly object _sync = new();
     private readonly nint _hwnd;
     private readonly SubclassProc _subclassDelegate;
     private bool _subclassInstalled;
     private bool _iconAdded;
+    private bool _isHiddenToTray;
     private nint _hIcon;
     private bool _disposed;
+    private CancellationTokenSource? _tempCleanupCts;
 
     public event EventHandler? RestoreRequested;
     public event EventHandler? ExitRequested;
@@ -51,22 +64,102 @@ public sealed class TrayIconService : IDisposable
 
     public void HideToTray(string tooltip = "CDBurner10")
     {
-        if (_disposed || _hwnd == 0) return;
+        lock (_sync)
+        {
+            if (_disposed || _hwnd == 0) return;
 
-        EnsureTrayIcon(tooltip);
+            CancelTemporaryCleanupLocked();
+            _isHiddenToTray = true;
+            EnsureTrayIconLocked(tooltip);
+        }
+
         ShowWindow(_hwnd, SW_HIDE);
     }
 
     public void RestoreFromTray()
     {
-        if (_disposed || _hwnd == 0) return;
+        lock (_sync)
+        {
+            if (_disposed || _hwnd == 0) return;
+
+            _isHiddenToTray = false;
+            CancelTemporaryCleanupLocked();
+            RemoveTrayIconLocked();
+        }
 
         ShowWindow(_hwnd, SW_RESTORE);
         SetForegroundWindow(_hwnd);
-        RemoveTrayIcon();
+    }
+
+    public void UpdateTooltip(string tooltip)
+    {
+        lock (_sync)
+        {
+            if (_disposed || _hwnd == 0 || !_iconAdded) return;
+
+            var data = CreateNotifyData(tooltip);
+            data.uFlags = NIF_TIP;
+            Shell_NotifyIconW(NIM_MODIFY, ref data);
+        }
+    }
+
+    public void ShowBalloonNotification(
+        string title,
+        string message,
+        NotificationSeverity severity,
+        bool silent = false,
+        bool keepIconDuringOperation = false)
+    {
+        lock (_sync)
+        {
+            if (_disposed || _hwnd == 0) return;
+
+            CancelTemporaryCleanupLocked();
+            EnsureTrayIconLocked("CDBurner10");
+            if (!_iconAdded) return;
+
+            uint infoFlags = severity switch
+            {
+                NotificationSeverity.Warning => NIIF_WARNING,
+                NotificationSeverity.Error => NIIF_ERROR,
+                _ => NIIF_INFO
+            };
+            infoFlags |= NIIF_RESPECT_QUIET_TIME;
+            if (silent) infoFlags |= NIIF_NOSOUND;
+
+            var data = CreateNotifyData("CDBurner10");
+            data.uFlags = NIF_INFO;
+            data.szInfoTitle = Truncate(title, 63);
+            data.szInfo = Truncate(message, 255);
+            data.dwInfoFlags = infoFlags;
+            Shell_NotifyIconW(NIM_MODIFY, ref data);
+
+            if (!_isHiddenToTray && !keepIconDuringOperation)
+            {
+                ScheduleTemporaryCleanupLocked(TimeSpan.FromSeconds(15));
+            }
+        }
+    }
+
+    public void ClearTemporaryIconSoon(TimeSpan delay)
+    {
+        lock (_sync)
+        {
+            if (_disposed || _isHiddenToTray || !_iconAdded) return;
+            ScheduleTemporaryCleanupLocked(delay);
+        }
     }
 
     public void RemoveTrayIcon()
+    {
+        lock (_sync)
+        {
+            CancelTemporaryCleanupLocked();
+            RemoveTrayIconLocked();
+        }
+    }
+
+    private void RemoveTrayIconLocked()
     {
         if (!_iconAdded) return;
 
@@ -75,7 +168,41 @@ public sealed class TrayIconService : IDisposable
         _iconAdded = false;
     }
 
-    private void EnsureTrayIcon(string tooltip)
+    private void ScheduleTemporaryCleanupLocked(TimeSpan delay)
+    {
+        CancelTemporaryCleanupLocked();
+        var cts = new CancellationTokenSource();
+        _tempCleanupCts = cts;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delay, cts.Token);
+                lock (_sync)
+                {
+                    if (!cts.IsCancellationRequested && !_isHiddenToTray && !_disposed)
+                    {
+                        RemoveTrayIconLocked();
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+    }
+
+    private void CancelTemporaryCleanupLocked()
+    {
+        var cts = Interlocked.Exchange(ref _tempCleanupCts, null);
+        if (cts is not null)
+        {
+            try { cts.Cancel(); } catch { }
+            cts.Dispose();
+        }
+    }
+
+    private void EnsureTrayIconLocked(string tooltip)
     {
         if (_iconAdded) return;
 
@@ -100,8 +227,16 @@ public sealed class TrayIconService : IDisposable
             cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATAW>(),
             hWnd = _hwnd,
             uID = 1,
-            szTip = tooltip.Length > 127 ? tooltip[..127] : tooltip
+            szTip = Truncate(tooltip, 127),
+            szInfo = string.Empty,
+            szInfoTitle = string.Empty
         };
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Length > maxLength ? value[..maxLength] : value;
     }
 
     private nint WindowSubclassProc(nint hWnd, uint uMsg, nint wParam, nint lParam, nuint uIdSubclass, nuint dwRefData)
@@ -109,7 +244,7 @@ public sealed class TrayIconService : IDisposable
         if (uMsg == WM_TRAYICON)
         {
             uint mouseMsg = (uint)(lParam.ToInt64() & 0xFFFF);
-            if (mouseMsg == WM_LBUTTONDBLCLK)
+            if (mouseMsg is WM_LBUTTONDBLCLK or NIN_BALLOONUSERCLICK)
             {
                 RestoreRequested?.Invoke(this, EventArgs.Empty);
                 return 0;
@@ -151,20 +286,32 @@ public sealed class TrayIconService : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        nint iconToDestroy;
+        bool removeSubclass;
 
-        RemoveTrayIcon();
-        if (_subclassInstalled)
+        lock (_sync)
         {
-            RemoveWindowSubclass(_hwnd, _subclassDelegate, SubclassId);
+            if (_disposed) return;
+            _disposed = true;
+
+            CancelTemporaryCleanupLocked();
+            RemoveTrayIconLocked();
+
+            removeSubclass = _subclassInstalled;
             _subclassInstalled = false;
+
+            iconToDestroy = _hIcon;
+            _hIcon = 0;
         }
 
-        if (_hIcon != 0)
+        if (removeSubclass)
         {
-            DestroyIcon(_hIcon);
-            _hIcon = 0;
+            RemoveWindowSubclass(_hwnd, _subclassDelegate, SubclassId);
+        }
+
+        if (iconToDestroy != 0)
+        {
+            DestroyIcon(iconToDestroy);
         }
     }
 

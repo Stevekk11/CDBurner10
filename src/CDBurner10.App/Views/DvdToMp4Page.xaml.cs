@@ -618,6 +618,11 @@ public sealed partial class DvdToMp4Page : Page
         int lastLoggedMilestone = -1;
         var convertWatch = Stopwatch.StartNew();
         _cts = new CancellationTokenSource();
+
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("DVD to MP4"),
+            $"Converting {sourceLabel} to '{Path.GetFileName(destination)}'...");
+
         var progress = new Progress<DvdMp4Progress>(p =>
         {
             if (!string.IsNullOrWhiteSpace(p.LogLine))
@@ -630,6 +635,8 @@ public sealed partial class DvdToMp4Page : Page
             ConvertProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
             ProgressPercentText.Text = $"{p.Percent}%";
             ProgressStatusText.Text = $"{p.Message} ({resolvedEncoder})";
+            op.Report(p.Percent, BurnPhase.Converting, p.TimeRemaining);
+
             var details = new List<string>();
             if (p.Fps > 0) details.Add($"{p.Fps:0} fps");
             if (p.Speed > 0) details.Add($"{p.Speed:0.0}×");
@@ -659,15 +666,18 @@ public sealed partial class DvdToMp4Page : Page
             OpenMp4Button.Visibility = Visibility.Visible;
             ShowInFolderButton.Visibility = Visibility.Visible;
             ShowStatus(InfoBarSeverity.Success, "MP4 Created", $"Saved '{Path.GetFileName(destination)}'.");
+            op.Complete($"Saved '{Path.GetFileName(destination)}'.");
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             ProgressStatusText.Text = "Conversion cancelled.";
             AppendLog($"Conversion cancelled by user after {FormatHelper.FormatDuration(convertWatch.Elapsed)}.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "DVD to MP4 conversion was cancelled.");
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             ProgressStatusText.Text = "Conversion failed.";
             AppendLog($"ERROR after {FormatHelper.FormatDuration(convertWatch.Elapsed)}: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Conversion Failed", ex.Message);

@@ -148,6 +148,10 @@ public sealed partial class BurnDataDialog : ContentDialog
         _cts = new CancellationTokenSource();
         string lastLogged = string.Empty;
 
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Burn Data Disc"),
+            $"Burning '{burner.VolumeName}' ({burner.FileCount} file(s)) to {drive.DisplayName}...");
+
         var progress = new Progress<BurnProgress>(p =>
         {
             WriteProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
@@ -157,6 +161,7 @@ public sealed partial class BurnDataDialog : ContentDialog
             PhaseText.Text = string.IsNullOrWhiteSpace(p.Message) ? p.Phase.ToString() : p.Message;
             var rem = p.TimeRemaining > TimeSpan.Zero ? $" • Remaining: {FormatHelper.FormatDuration(p.TimeRemaining)}" : string.Empty;
             TimeText.Text = $"Elapsed: {FormatHelper.FormatDuration(sw.Elapsed)}{rem}";
+            op.Report(p);
             if (!string.IsNullOrWhiteSpace(p.Message) && p.Message != lastLogged && p.Phase != BurnPhase.Burning)
             {
                 lastLogged = p.Message;
@@ -172,6 +177,7 @@ public sealed partial class BurnDataDialog : ContentDialog
             StatusInfoBar.Title = "Burn Completed";
             StatusInfoBar.Message = "Your data disc has been burned successfully.";
             StatusInfoBar.IsOpen = true;
+            op.Complete("Your data disc has been burned successfully.");
 
             if (ShutdownCheckBox.IsChecked == true && !_cts.IsCancellationRequested)
             {
@@ -181,6 +187,7 @@ public sealed partial class BurnDataDialog : ContentDialog
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             AppendLog("Burn cancelled by user.");
             StatusInfoBar.Severity = InfoBarSeverity.Warning;
             StatusInfoBar.Title = "Burn Cancelled";
@@ -189,6 +196,7 @@ public sealed partial class BurnDataDialog : ContentDialog
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             AppendLog($"ERROR: {ex.Message}");
             StatusInfoBar.Severity = InfoBarSeverity.Error;
             StatusInfoBar.Title = "Burn Failed";

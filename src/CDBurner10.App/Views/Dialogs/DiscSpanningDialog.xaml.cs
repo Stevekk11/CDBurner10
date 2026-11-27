@@ -104,6 +104,10 @@ public sealed partial class DiscSpanningDialog : ContentDialog
         ActionProgressBar.Visibility = Visibility.Visible;
         ActionProgressBar.Value = 0;
 
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Disc Spanning — Burn"),
+            $"Burning '{disc.VolumeName}' to {drive.DisplayName}...");
+
         try
         {
             var opts = new DataBurnOptions
@@ -113,12 +117,22 @@ public sealed partial class DiscSpanningDialog : ContentDialog
                 EjectAfterBurn = true,
                 VolumeName = disc.VolumeName
             };
-            var prog = new Progress<BurnProgress>(p => ActionProgressBar.Value = Math.Clamp(p.Percent, 0, 100));
+            var prog = new Progress<BurnProgress>(p =>
+            {
+                ActionProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
+                op.Report(p);
+            });
             await disc.BurnAsync(opts, prog);
             ShowStatus(InfoBarSeverity.Success, "Disc Burned", $"Successfully burned '{disc.VolumeName}' to {drive.DisplayName}.");
+            op.Complete($"Successfully burned '{disc.VolumeName}' to {drive.DisplayName}.");
+        }
+        catch (OperationCanceledException)
+        {
+            op.Cancel();
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             ShowStatus(InfoBarSeverity.Error, "Burn Failed", ex.Message);
         }
         finally
@@ -139,6 +153,10 @@ public sealed partial class DiscSpanningDialog : ContentDialog
         SaveIsosButton.IsEnabled = false;
         ActionProgressBar.Visibility = Visibility.Visible;
 
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Disc Spanning — Save ISOs"),
+            $"Saving {_discs.Count} ISO image(s) to '{folder}'...");
+
         try
         {
             for (int i = 0; i < _discs.Count; i++)
@@ -147,13 +165,23 @@ public sealed partial class DiscSpanningDialog : ContentDialog
                 var isoPath = Path.Combine(folder, $"{disc.VolumeName}_Disc{i + 1}.iso");
                 int idx = i;
                 var prog = new Progress<BurnProgress>(p =>
-                    ActionProgressBar.Value = Math.Clamp((idx * 100.0 + p.Percent) / _discs.Count, 0, 100));
+                {
+                    double combined = Math.Clamp((idx * 100.0 + p.Percent) / _discs.Count, 0, 100);
+                    ActionProgressBar.Value = combined;
+                    op.Report(combined, BurnPhase.Converting, p.TimeRemaining);
+                });
                 await disc.SaveIsoAsync(isoPath, disc.VolumeName, prog);
             }
             ShowStatus(InfoBarSeverity.Success, "ISOs Saved", $"Saved {_discs.Count} ISO image(s) to '{folder}'.");
+            op.Complete($"Saved {_discs.Count} ISO image(s).");
+        }
+        catch (OperationCanceledException)
+        {
+            op.Cancel();
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             ShowStatus(InfoBarSeverity.Error, "Save Failed", ex.Message);
         }
         finally

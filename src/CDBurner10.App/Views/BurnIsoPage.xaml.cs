@@ -195,10 +195,15 @@ public sealed partial class BurnIsoPage : Page
             CDBurner10.Core.Utilities.DiagnosticLogger.Info("BurnIso", msg);
         }
 
-        AppendLog($"Starting burn of '{Path.GetFileName(path)}' to {drive.DisplayName}...");
+        string isoName = Path.GetFileName(path);
+        AppendLog($"Starting burn of '{isoName}' to {drive.DisplayName}...");
         var sw = Stopwatch.StartNew();
         _cts = new CancellationTokenSource();
         string lastLogged = string.Empty;
+
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Burn ISO Image"),
+            $"Burning '{isoName}' to {drive.DisplayName}...");
 
         var progress = new Progress<BurnProgress>(p =>
         {
@@ -206,6 +211,7 @@ public sealed partial class BurnIsoPage : Page
             ProgressPhaseText.Text = string.IsNullOrWhiteSpace(p.Message) ? $"{p.Phase} ({p.Percent}%)" : p.Message;
             var rem = p.TimeRemaining > TimeSpan.Zero ? $" • Remaining: {FormatHelper.FormatDuration(p.TimeRemaining)}" : string.Empty;
             ProgressTimeText.Text = $"Elapsed: {FormatHelper.FormatDuration(sw.Elapsed)}{rem}";
+            op.Report(p);
             if (!string.IsNullOrWhiteSpace(p.Message) && p.Message != lastLogged && p.Phase != BurnPhase.Burning)
             {
                 lastLogged = p.Message;
@@ -217,7 +223,8 @@ public sealed partial class BurnIsoPage : Page
         {
             await _burner.BurnAsync(options, progress, _cts.Token);
             AppendLog("ISO image burned successfully.");
-            ShowStatus(InfoBarSeverity.Success, "Burn Completed", $"Successfully burned '{Path.GetFileName(path)}'.");
+            ShowStatus(InfoBarSeverity.Success, "Burn Completed", $"Successfully burned '{isoName}'.");
+            op.Complete($"Successfully burned '{isoName}'.");
 
             if (ShutdownCheckBox.IsChecked == true && !_cts.IsCancellationRequested)
             {
@@ -227,11 +234,13 @@ public sealed partial class BurnIsoPage : Page
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             AppendLog("Burn cancelled by user.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "Image burn was cancelled.");
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             AppendLog($"ERROR: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Burn Failed", ex.Message);
         }

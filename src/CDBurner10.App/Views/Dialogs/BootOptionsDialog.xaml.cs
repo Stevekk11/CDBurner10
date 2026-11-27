@@ -71,18 +71,33 @@ public sealed partial class BootOptionsDialog : ContentDialog
         FloppyProgressBar.Visibility = Visibility.Visible;
         FloppyProgressBar.Value = 0;
 
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Create Boot Image"),
+            $"Reading boot image from {letter}...");
+
         try
         {
-            var progress = new Progress<double>(p => FloppyProgressBar.Value = Math.Clamp(p, 0, 100));
+            var progress = new Progress<double>(p =>
+            {
+                double clamped = Math.Clamp(p, 0, 100);
+                FloppyProgressBar.Value = clamped;
+                op.Report(clamped, BurnPhase.Grabbing);
+            });
             await IsoTools.ReadImageFromFloppyDeviceAsync(letter, outputPath, progress);
             BootImagePathBox.Text = outputPath;
             StatusInfoBar.Severity = InfoBarSeverity.Success;
             StatusInfoBar.Title = "Floppy Image Created";
             StatusInfoBar.Message = $"Saved boot image to '{Path.GetFileName(outputPath)}'.";
             StatusInfoBar.IsOpen = true;
+            op.Complete($"Saved boot image to '{Path.GetFileName(outputPath)}'.");
+        }
+        catch (OperationCanceledException)
+        {
+            op.Cancel();
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             StatusInfoBar.Severity = InfoBarSeverity.Error;
             StatusInfoBar.Title = "Floppy Read Failed";
             StatusInfoBar.Message = ex.Message;

@@ -461,6 +461,15 @@ public sealed partial class CopyDiscPage : Page
         BurnPhase lastPhase = BurnPhase.Preparing;
         string? tempIso = null;
 
+        string opTitle = toHardDisc
+            ? (wantsMpg ? Loc.T("Extract Video Stream") : Loc.T("Grab Disc to Image"))
+            : Loc.T("Copy Disc");
+        string opStart = toHardDisc
+            ? $"Reading {sourceDrive.DisplayName} to '{Path.GetFileName(targetPath)}'..."
+            : $"Copying {sourceDrive.DisplayName} to {targetDrive!.DisplayName}...";
+
+        using var op = AppServices.Current.Operations.Begin(opTitle, opStart);
+
         var progress = new Progress<BurnProgress>(p =>
         {
             CopyProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
@@ -468,6 +477,7 @@ public sealed partial class CopyDiscPage : Page
             var rem = p.TimeRemaining > TimeSpan.Zero ? $" • Remaining: {FormatHelper.FormatDuration(p.TimeRemaining)}" : string.Empty;
             var errs = p.ReadErrors > 0 ? $" • Read errors: {p.ReadErrors}" : string.Empty;
             ProgressTimeText.Text = $"Elapsed: {FormatHelper.FormatDuration(sw.Elapsed)}{rem}{errs}";
+            op.Report(p);
             if (!string.IsNullOrWhiteSpace(p.Message) && p.Message != lastLogged && p.Phase is not (BurnPhase.Burning or BurnPhase.Grabbing))
             {
                 lastLogged = p.Message;
@@ -569,6 +579,7 @@ public sealed partial class CopyDiscPage : Page
                         InfoBarSeverity.Warning,
                         "Grab Completed with Read Errors",
                         $"Saved '{Path.GetFileName(targetPath)}' with {grabResult.BadSectorCount} unreadable sector(s) zero-filled. Check the Event Log for affected LBA ranges.");
+                    op.Complete($"Saved '{Path.GetFileName(targetPath)}' ({grabResult.BadSectorCount} sector(s) padded).");
                 }
                 else
                 {
@@ -576,6 +587,7 @@ public sealed partial class CopyDiscPage : Page
                         InfoBarSeverity.Success,
                         wantsMpg ? "Video Stream Extracted" : "Grab Completed",
                         $"Saved '{Path.GetFileName(targetPath)}'.");
+                    op.Complete($"Saved '{Path.GetFileName(targetPath)}'.");
                 }
             }
             else
@@ -607,6 +619,7 @@ public sealed partial class CopyDiscPage : Page
 
                 if (sourceDrive.Letter.Equals(targetDrive!.Letter, StringComparison.OrdinalIgnoreCase))
                 {
+                    op.SetPaused(true);
                     await sourceDrive.EjectAsync();
                     bool cont = await AppServices.Current.Dialogs.ConfirmAsync(
                         XamlRoot,
@@ -619,6 +632,7 @@ public sealed partial class CopyDiscPage : Page
                         throw new OperationCanceledException();
                     }
                     await targetDrive.LoadAsync();
+                    op.SetPaused(false);
                 }
 
                 AppendLog($"Phase 2/2: Burning image to {targetDrive.DisplayName}...");
@@ -640,20 +654,24 @@ public sealed partial class CopyDiscPage : Page
                         InfoBarSeverity.Warning,
                         "Copy Completed with Read Errors",
                         $"Disc copied, but {grabResult.BadSectorCount} unreadable source sector(s) were zero-filled. Check the Event Log for affected LBAs.");
+                    op.Complete($"Disc copied ({grabResult.BadSectorCount} sector(s) padded).");
                 }
                 else
                 {
                     ShowStatus(InfoBarSeverity.Success, "Copy Completed", "Optical disc copied successfully.");
+                    op.Complete("Optical disc copied successfully.");
                 }
             }
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             AppendLog($"Operation cancelled by user after {FormatHelper.FormatDuration(sw.Elapsed)}.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "Disc copy operation was cancelled.");
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             AppendLog($"ERROR after {FormatHelper.FormatDuration(sw.Elapsed)}: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Copy Failed", ex.Message);
         }

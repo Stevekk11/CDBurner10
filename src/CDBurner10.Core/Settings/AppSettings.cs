@@ -12,6 +12,8 @@ public class AppSettings
     // [General]
     public string AppLanguage { get; set; } = string.Empty;
     public bool ExitToNotify { get; set; } = false;
+    public bool ShowNotifications { get; set; } = true;
+    public bool ShowProgressNotifications { get; set; } = true;
     public int ToolbarDisplayStyle { get; set; } = 2;
     public bool OnlyUseSingleUnit { get; set; } = false;
     public bool StartLastUsedProjectType { get; set; } = false;

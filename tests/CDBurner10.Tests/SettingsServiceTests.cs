@@ -18,6 +18,8 @@ public sealed class SettingsServiceTests
         Assert.Equal("Disc", defaults.DataLabel);
         Assert.True(defaults.DataBurnEject);
         Assert.True(defaults.AudioAutoCDText);
+        Assert.True(defaults.ShowNotifications);
+        Assert.True(defaults.ShowProgressNotifications);
         Assert.Equal(2, defaults.AudioPauseLength);
         Assert.Equal(ReplayGainMode.None, defaults.AudioReplayGain);
 
@@ -28,6 +30,8 @@ public sealed class SettingsServiceTests
         svc.Current.AppLanguage = "en-US";
         svc.Current.DataLabel = "Archive_$year";
         svc.Current.DataBurnVerify = true;
+        svc.Current.ShowNotifications = false;
+        svc.Current.ShowProgressNotifications = false;
         svc.Current.AudioReplayGain = ReplayGainMode.Album;
         svc.Current.AudioCrossfadingDuration = 3.5;
         svc.Current.CopyReadRetries = 7;
@@ -41,6 +45,8 @@ public sealed class SettingsServiceTests
         Assert.Equal("en-US", loaded.AppLanguage);
         Assert.Equal("Archive_$year", loaded.DataLabel);
         Assert.True(loaded.DataBurnVerify);
+        Assert.False(loaded.ShowNotifications);
+        Assert.False(loaded.ShowProgressNotifications);
         Assert.Equal(ReplayGainMode.Album, loaded.AudioReplayGain);
         Assert.Equal(3.5, loaded.AudioCrossfadingDuration);
         Assert.Equal(7, loaded.CopyReadRetries);
@@ -49,7 +55,23 @@ public sealed class SettingsServiceTests
         svc2.ResetToDefaults();
         Assert.Equal("Disc", svc2.Current.DataLabel);
         Assert.False(svc2.Current.DataBurnVerify);
+        Assert.True(svc2.Current.ShowNotifications);
+        Assert.True(svc2.Current.ShowProgressNotifications);
         Assert.Equal(ReplayGainMode.None, svc2.Current.AudioReplayGain);
+    }
+
+    [Fact]
+    public void LegacyJsonWithoutNotificationFlags_DefaultsNotificationFlagsToTrue()
+    {
+        using var tmp = new TempDirectory();
+        var svc = new SettingsService(tmp.Path);
+        File.WriteAllText(svc.SettingsFilePath, """{"DataLabel":"LegacyDisc"}""");
+
+        var loaded = svc.Load();
+
+        Assert.Equal("LegacyDisc", loaded.DataLabel);
+        Assert.True(loaded.ShowNotifications);
+        Assert.True(loaded.ShowProgressNotifications);
     }
 
     [Fact]

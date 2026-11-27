@@ -248,12 +248,15 @@ public sealed partial class VideoDvdPage : Page
         _cts = new CancellationTokenSource();
         string lastLoggedMsg = string.Empty;
 
+        using var op = AppServices.Current.Operations.Begin(Loc.T("Video DVD"), startMessage);
+
         var progress = new Progress<BurnProgress>(p =>
         {
             BurnProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
             ProgressPhaseText.Text = string.IsNullOrWhiteSpace(p.Message) ? $"{p.Phase} ({p.Percent}%)" : p.Message;
             var remText = p.TimeRemaining > TimeSpan.Zero ? $" • Remaining: {FormatHelper.FormatDuration(p.TimeRemaining)}" : string.Empty;
             ProgressTimeText.Text = $"Elapsed: {FormatHelper.FormatDuration(sw.Elapsed)}{remText}";
+            op.Report(p);
 
             if (!string.IsNullOrWhiteSpace(p.Message) && p.Message != lastLoggedMsg && p.Phase != BurnPhase.Burning)
             {
@@ -268,6 +271,7 @@ public sealed partial class VideoDvdPage : Page
             sw.Stop();
             AppendLog("Operation completed successfully.");
             ShowStatus(InfoBarSeverity.Success, "Completed", "DVD-Video operation finished successfully.");
+            op.Complete("DVD-Video operation finished successfully.");
 
             if (allowShutdown && !_cts.IsCancellationRequested)
             {
@@ -277,11 +281,13 @@ public sealed partial class VideoDvdPage : Page
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             AppendLog("Operation cancelled by user.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "DVD-Video operation was cancelled.");
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             AppendLog($"ERROR: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Operation Failed", ex.Message);
         }

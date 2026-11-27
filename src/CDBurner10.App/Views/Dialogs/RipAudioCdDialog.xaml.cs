@@ -208,6 +208,10 @@ public sealed partial class RipAudioCdDialog : ContentDialog
         bool recoverScratches = RecoverBadSectorsCheckBox.IsChecked == true;
         int readSpeed = (ReadSpeedComboBox.SelectedItem as DriveSpeedModel)?.SpeedKBps ?? 0;
 
+        using var op = AppServices.Current.Operations.Begin(
+            Loc.T("Rip Audio CD"),
+            $"Ripping {selected.Count} track(s) from {drive.DisplayName}...");
+
         try
         {
             for (int i = 0; i < selected.Count; i++)
@@ -220,8 +224,10 @@ public sealed partial class RipAudioCdDialog : ContentDialog
                 int idx = i;
                 var prog = new Progress<BurnProgress>(p =>
                 {
-                    RipProgressBar.Value = Math.Clamp((idx * 100.0 + p.Percent) / selected.Count, 0, 100);
+                    double combined = Math.Clamp((idx * 100.0 + p.Percent) / selected.Count, 0, 100);
+                    RipProgressBar.Value = combined;
                     RipStatusText.Text = $"Ripping Track {tr.TrackNumber:D2} ({idx + 1}/{selected.Count})... {p.Percent}%";
+                    op.Report(combined, BurnPhase.Grabbing, p.TimeRemaining);
                 });
 
                 var opts = new GrabOptions
@@ -258,11 +264,13 @@ public sealed partial class RipAudioCdDialog : ContentDialog
 
             if (ripped.Count == 0 && skippedTracks.Count > 0)
             {
+                string failMsg = $"Could not read any selected track ({string.Join(", ", skippedTracks)}). Enable scratch recovery or lower the read speed.";
                 StatusInfoBar.Severity = InfoBarSeverity.Error;
                 StatusInfoBar.Title = "Rip Failed";
-                StatusInfoBar.Message = $"Could not read any selected track ({string.Join(", ", skippedTracks)}). Enable scratch recovery or lower the read speed.";
+                StatusInfoBar.Message = failMsg;
                 StatusInfoBar.IsOpen = true;
                 RipStatusText.Text = "No tracks could be ripped.";
+                op.Fail(failMsg);
                 return null;
             }
 
@@ -270,10 +278,12 @@ public sealed partial class RipAudioCdDialog : ContentDialog
                 ? $" ({totalPaddedSectors} sector(s) padded, {skippedTracks.Count} skipped)"
                 : string.Empty;
             RipStatusText.Text = $"Finished ripping {ripped.Count} track(s){warnSuffix}.";
+            op.Complete($"Ripped {ripped.Count} track(s){warnSuffix}.");
             return new RipBatchOutcome(ripped, totalPaddedSectors, paddedTracks, skippedTracks);
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             if (string.IsNullOrWhiteSpace(exportFolder))
             {
                 foreach (var tempFile in ripped)
@@ -291,6 +301,7 @@ public sealed partial class RipAudioCdDialog : ContentDialog
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             StatusInfoBar.Severity = InfoBarSeverity.Error;
             StatusInfoBar.Title = "Rip Failed";
             StatusInfoBar.Message = ex.Message;

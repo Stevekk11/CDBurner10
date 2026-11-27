@@ -563,12 +563,15 @@ public sealed partial class VideoFromFilePanel : UserControl
         _cts = new CancellationTokenSource();
         string lastLoggedMsg = string.Empty;
 
+        using var op = AppServices.Current.Operations.Begin(Loc.T("Video DVD"), startMessage);
+
         var progress = new Progress<BurnProgress>(p =>
         {
             ProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
             ProgressPhaseText.Text = string.IsNullOrWhiteSpace(p.Message) ? $"{p.Phase} ({p.Percent}%)" : p.Message;
             var remText = p.TimeRemaining > TimeSpan.Zero ? $" • Remaining: {FormatHelper.FormatDuration(p.TimeRemaining)}" : string.Empty;
             ProgressTimeText.Text = $"Elapsed: {FormatHelper.FormatDuration(sw.Elapsed)}{remText}";
+            op.Report(p);
 
             if (!string.IsNullOrWhiteSpace(p.Message) && p.Message != lastLoggedMsg && p.Phase != BurnPhase.Burning)
             {
@@ -586,14 +589,17 @@ public sealed partial class VideoFromFilePanel : UserControl
             ProgressTimeText.Text = $"Elapsed: {FormatHelper.FormatDuration(sw.Elapsed)}";
             AppendLog("Operation completed successfully.");
             ShowStatus(InfoBarSeverity.Success, "Completed", "Video DVD authoring operation finished successfully.");
+            op.Complete("Video DVD authoring operation finished successfully.");
         }
         catch (OperationCanceledException)
         {
+            op.Cancel();
             AppendLog("Operation cancelled by user.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "Video DVD authoring operation was cancelled.");
         }
         catch (Exception ex)
         {
+            op.Fail(ex.Message);
             AppendLog($"ERROR: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Operation Failed", ex.Message);
         }
