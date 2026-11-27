@@ -1,0 +1,92 @@
+name: Build and Release MSI
+
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "installer/build-msi.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: "release-msi"
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version and check if bumped
+        id: version
+        shell: pwsh
+        run: |
+          $script = Get-Content -Raw "installer/build-msi.ps1"
+          if ($script -notmatch '\[string\]\$Version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)"') {
+            throw "Could not extract default `$Version from installer/build-msi.ps1"
+          }
+          $fullVersion = $Matches[1]
+          $shortVersion = ($fullVersion -split '\.')[0..2] -join '.'
+          $tag = "v$shortVersion"
+
+          Write-Host "Detected version: $fullVersion (tag: $tag)"
+
+          $tagExists = $false
+          git rev-parse --verify --quiet "refs/tags/$tag" | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            $tagExists = $true
+          }
+
+          if ($tagExists) {
+            Write-Host "Tag $tag already exists. Skipping MSI build and release."
+            "should_release=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Host "Tag $tag does not exist yet. Proceeding with MSI build and release."
+            "should_release=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+          "full_version=$fullVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "short_version=$shortVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "msi_path=installer/out/CDBurner10-$shortVersion-win-x64.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Setup .NET 10
+        if: steps.version.outputs.should_release == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install WiX Toolset
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          wix extension add -g WixToolset.UI.wixext
+
+      - name: Build MSI
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          ./installer/build-msi.ps1 -Version "${{ steps.version.outputs.full_version }}"
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $msiPath = "${{ steps.version.outputs.msi_path }}"
+          if (-not (Test-Path $msiPath)) {
+            throw "Expected MSI not found at $msiPath"
+          }
+          gh release create $tag $msiPath `
+            --target "${{ github.sha }}" `
+            --title "CDBurner10 $tag" `
+            --generate-notes
