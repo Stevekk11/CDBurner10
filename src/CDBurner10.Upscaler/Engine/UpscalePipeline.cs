@@ -196,7 +196,9 @@ public static class UpscalePipeline
         if (!string.IsNullOrWhiteSpace(source.SampleAspectRatio) &&
             !source.SampleAspectRatio.Equals("1:1", StringComparison.OrdinalIgnoreCase))
         {
-            vfParts.Add($"setsar={source.SampleAspectRatio}");
+            // FFmpeg's setsar filter uses '/' for fractions (':' is the filter option separator)
+            string sarExpr = source.SampleAspectRatio.Replace(':', '/');
+            vfParts.Add($"setsar={sarExpr}");
         }
 
         var encPsi = BuildEncoderStartInfo(
