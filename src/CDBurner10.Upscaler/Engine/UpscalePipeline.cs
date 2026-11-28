@@ -118,8 +118,7 @@ public static class UpscalePipeline
                 $"Output file already exists: '{finalOutputPath}'. Enable overwrite in Settings or remove the existing file.");
 
         int scale = settings.ScaleFactor is 4 ? 4 : 2;
-        int outW = MakeEven(source.Width * scale);
-        int outH = MakeEven(source.Height * scale);
+        var (outW, outH) = ComputeTargetDimensions(source, scale);
 
         string formatExt = outputFormat.Trim().TrimStart('.').ToLowerInvariant() == "mkv" ? "mkv" : "mp4";
         string muxerFormat = formatExt == "mkv" ? "matroska" : "mp4";
@@ -188,22 +187,11 @@ public static class UpscalePipeline
         Stopwatch elapsedWatch,
         CancellationToken ct)
     {
-        var vfParts = new List<string>
-        {
-            "scale=out_color_matrix=bt709:out_range=tv",
-            "format=yuv420p"
-        };
-        if (!string.IsNullOrWhiteSpace(source.SampleAspectRatio) &&
-            !source.SampleAspectRatio.Equals("1:1", StringComparison.OrdinalIgnoreCase))
-        {
-            // FFmpeg's setsar filter uses '/' for fractions (':' is the filter option separator)
-            string sarExpr = source.SampleAspectRatio.Replace(':', '/');
-            vfParts.Add($"setsar={sarExpr}");
-        }
-
+        // libmpv renders square pixels at the true Display Aspect Ratio into outW x outH,
+        // so output SAR is always 1:1 (never re-apply anamorphic source SAR on top of mpv's FBO).
         var encPsi = BuildEncoderStartInfo(
             ffmpeg, "bgra", outW, outH, fpsStr, source,
-            videoFilter: string.Join(",", vfParts),
+            videoFilter: "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setsar=1",
             encoder, muxerFormat, formatExt, tempOutputPath, settings,
             tagBt709: true);
 
@@ -507,6 +495,29 @@ public static class UpscalePipeline
     {
         if (string.IsNullOrWhiteSpace(codec)) return false;
         return codec.ToLowerInvariant() is "aac" or "mp3" or "ac3" or "eac3" or "alac" or "opus" or "mp2";
+    }
+
+    private static (int Width, int Height) ComputeTargetDimensions(VideoSourceInfo source, int scale)
+    {
+        int dispW = source.Width;
+        int dispH = source.Height;
+
+        if (!string.IsNullOrWhiteSpace(source.SampleAspectRatio))
+        {
+            var parts = source.SampleAspectRatio.Split([':', '/'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int sarNum) &&
+                int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int sarDen) &&
+                sarNum > 0 && sarDen > 0 && sarNum != sarDen)
+            {
+                if (sarNum > sarDen)
+                    dispW = (int)Math.Round(source.Width * (double)sarNum / sarDen);
+                else
+                    dispH = (int)Math.Round(source.Height * (double)sarDen / sarNum);
+            }
+        }
+
+        return (MakeEven(dispW * scale), MakeEven(dispH * scale));
     }
 
     private static int MakeEven(int value) => value % 2 == 0 ? value : value + 1;
