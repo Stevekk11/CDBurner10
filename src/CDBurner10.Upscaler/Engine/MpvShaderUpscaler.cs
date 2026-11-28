@@ -442,6 +442,7 @@ internal static class MpvShaderUpscaler
         _ = LibMpvNative.SetOptionString(mpv, "framedrop", "no");
         _ = LibMpvNative.SetOptionString(mpv, "hr-seek-framedrop", "no");
         _ = LibMpvNative.SetOptionString(mpv, "interpolation", "no");
+        _ = LibMpvNative.SetOptionString(mpv, "deinterlace", "auto");
         _ = LibMpvNative.SetOptionString(mpv, "hwdec",
             string.IsNullOrWhiteSpace(settings.MpvHwdec) ? "auto-copy" : settings.MpvHwdec);
         _ = LibMpvNative.SetOptionString(mpv, "scale",

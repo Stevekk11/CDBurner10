@@ -20,15 +20,25 @@ public sealed record UpscaleProgress(
 public static class UpscalePipeline
 {
     private static readonly object EncoderLock = new();
+    private static string? _h264HwEncoder;
+    private static bool _h264Probed;
     private static string? _hevcHwEncoder;
     private static bool _hevcProbed;
+
+    // Exclude MediaFoundation (h264_mf / hevc_mf) from auto-detection: Windows MF ignores -crf/-q:v
+    // and defaults to ~800 kbps Constrained Baseline, causing severe ghosting/smearing.
+    private static readonly string[] H264HardwareCandidates =
+    [
+        "h264_nvenc",
+        "h264_qsv",
+        "h264_amf"
+    ];
 
     private static readonly string[] HevcHardwareCandidates =
     [
         "hevc_nvenc",
         "hevc_qsv",
-        "hevc_amf",
-        "hevc_mf"
+        "hevc_amf"
     ];
 
     public static string ResolveVideoEncoder(UpscalerSettings settings, out string friendlyLabel)
@@ -52,10 +62,29 @@ public static class UpscalePipeline
             return "libx265";
         }
 
-        string enc = DvdVideoConverter.ResolveVideoEncoder(
-            allowHw ? DvdVideoEncoder.Auto : DvdVideoEncoder.Software);
-        friendlyLabel = $"H.264 ({enc})";
-        return enc;
+        if (allowHw)
+        {
+            string? hw = DetectH264HardwareEncoder();
+            if (hw is not null)
+            {
+                friendlyLabel = $"H.264 ({hw})";
+                return hw;
+            }
+        }
+
+        friendlyLabel = "H.264 (libx264)";
+        return "libx264";
+    }
+
+    private static string? DetectH264HardwareEncoder()
+    {
+        lock (EncoderLock)
+        {
+            if (_h264Probed) return _h264HwEncoder;
+            _h264HwEncoder = DvdVideoConverter.DetectHardwareEncoder(H264HardwareCandidates);
+            _h264Probed = true;
+            return _h264HwEncoder;
+        }
     }
 
     private static string? DetectHevcHardwareEncoder()
@@ -159,10 +188,22 @@ public static class UpscalePipeline
         Stopwatch elapsedWatch,
         CancellationToken ct)
     {
+        var vfParts = new List<string>
+        {
+            "scale=out_color_matrix=bt709:out_range=tv",
+            "format=yuv420p"
+        };
+        if (!string.IsNullOrWhiteSpace(source.SampleAspectRatio) &&
+            !source.SampleAspectRatio.Equals("1:1", StringComparison.OrdinalIgnoreCase))
+        {
+            vfParts.Add($"setsar={source.SampleAspectRatio}");
+        }
+
         var encPsi = BuildEncoderStartInfo(
             ffmpeg, "bgra", outW, outH, fpsStr, source,
-            videoFilter: "format=yuv420p",
-            encoder, muxerFormat, formatExt, tempOutputPath, settings);
+            videoFilter: string.Join(",", vfParts),
+            encoder, muxerFormat, formatExt, tempOutputPath, settings,
+            tagBt709: true);
 
         using var encProc = Process.Start(encPsi)
                             ?? throw new InvalidOperationException("Failed to start FFmpeg encoder.");
@@ -340,7 +381,8 @@ public static class UpscalePipeline
         string muxerFormat,
         string formatExt,
         string outputPath,
-        UpscalerSettings settings)
+        UpscalerSettings settings,
+        bool tagBt709 = false)
     {
         var psi = new ProcessStartInfo
         {
@@ -382,6 +424,11 @@ public static class UpscalePipeline
         Add("-c:v", encoder);
         AddEncoderQualityArgs(psi, encoder, settings);
         Add("-pix_fmt", "yuv420p");
+
+        if (tagBt709)
+        {
+            Add("-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv");
+        }
 
         if (source.HasAudio)
         {
@@ -436,11 +483,21 @@ public static class UpscalePipeline
             psi.ArgumentList.Add("-qp_p");
             psi.ArgumentList.Add(crf.ToString(CultureInfo.InvariantCulture));
         }
+        else if (encoder.EndsWith("_mf", StringComparison.OrdinalIgnoreCase))
+        {
+            // MediaFoundation requires -rate_control quality + -quality (0..100); -q:v is ignored
+            int mfQuality = Math.Clamp(100 - (crf * 2), 60, 95);
+            psi.ArgumentList.Add("-rate_control");
+            psi.ArgumentList.Add("quality");
+            psi.ArgumentList.Add("-quality");
+            psi.ArgumentList.Add(mfQuality.ToString(CultureInfo.InvariantCulture));
+            psi.ArgumentList.Add("-scenario");
+            psi.ArgumentList.Add("archive");
+        }
         else
         {
-            // MediaFoundation or generic fallback
-            psi.ArgumentList.Add("-q:v");
-            psi.ArgumentList.Add("80");
+            psi.ArgumentList.Add("-crf");
+            psi.ArgumentList.Add(crf.ToString(CultureInfo.InvariantCulture));
         }
     }
 

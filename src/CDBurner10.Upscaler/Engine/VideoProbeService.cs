@@ -17,7 +17,8 @@ public sealed record VideoSourceInfo(
     bool HasAudio,
     string? AudioCodec,
     int AudioChannels,
-    long FileSizeBytes)
+    long FileSizeBytes,
+    string? SampleAspectRatio = null)
 {
     public string ResolutionLabel => $"{Width}×{Height}";
     public string FpsLabel => Fps > 0 ? $"{Fps:0.###} fps" : "Unknown fps";
@@ -90,6 +91,7 @@ public static class VideoProbeService
         double streamDuration = 0;
         string videoCodec = "unknown";
         string pixFmt = "yuv420p";
+        string? sar = null;
         bool hasAudio = false;
         string? audioCodec = null;
         int audioChannels = 0;
@@ -105,6 +107,16 @@ public static class VideoProbeService
                     if (s.TryGetProperty("height", out var hEl) && hEl.TryGetInt32(out int h)) height = h;
                     if (s.TryGetProperty("codec_name", out var cnEl)) videoCodec = cnEl.GetString() ?? "unknown";
                     if (s.TryGetProperty("pix_fmt", out var pfEl)) pixFmt = pfEl.GetString() ?? "yuv420p";
+                    if (s.TryGetProperty("sample_aspect_ratio", out var sarEl))
+                    {
+                        string? rawSar = sarEl.GetString();
+                        if (!string.IsNullOrWhiteSpace(rawSar) &&
+                            !rawSar.Equals("N/A", StringComparison.OrdinalIgnoreCase) &&
+                            !rawSar.Equals("0:1", StringComparison.OrdinalIgnoreCase))
+                        {
+                            sar = rawSar;
+                        }
+                    }
 
                     if (s.TryGetProperty("avg_frame_rate", out var afrEl))
                         fps = ParseFraction(afrEl.GetString());
@@ -153,7 +165,8 @@ public static class VideoProbeService
             HasAudio: hasAudio,
             AudioCodec: audioCodec,
             AudioChannels: audioChannels,
-            FileSizeBytes: fileSize);
+            FileSizeBytes: fileSize,
+            SampleAspectRatio: sar);
     }
 
     private static double ParseFraction(string? raw)
