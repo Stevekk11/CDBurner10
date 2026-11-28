@@ -23,6 +23,7 @@ internal sealed unsafe class OffscreenGlContext : IDisposable
 
     private const uint GL_TEXTURE_2D = 0x0DE1;
     private const uint GL_RGBA = 0x1908;
+    private const uint GL_BGRA = 0x80E1;
     private const uint GL_RGBA8 = 0x8058;
     private const uint GL_UNSIGNED_BYTE = 0x1401;
     private const uint GL_LINEAR = 0x2601;
@@ -37,6 +38,11 @@ internal sealed unsafe class OffscreenGlContext : IDisposable
     private const uint GL_VERSION = 0x1F02;
     private const uint GL_RENDERER = 0x1F01;
     private const uint GL_PACK_ALIGNMENT = 0x0D05;
+    private const uint GL_PIXEL_PACK_BUFFER = 0x88EB;
+    private const uint GL_STREAM_READ = 0x88E1;
+    private const uint GL_MAP_READ_BIT = 0x0001;
+
+    public const int PboRingCapacity = 3;
 
     private readonly nint _hInstance;
     private readonly string _className;
@@ -47,11 +53,18 @@ internal sealed unsafe class OffscreenGlContext : IDisposable
 
     private uint _fbo;
     private uint _texture;
+    private readonly uint[] _pbos = new uint[PboRingCapacity];
+    private readonly Queue<int> _pendingPboSlots = new(PboRingCapacity);
+    private int _nextPboSlot;
+    private bool _pboSupported;
     private bool _disposed;
 
     public int Width { get; }
     public int Height { get; }
+    public int FrameByteSize => Width * Height * 4;
     public int FboId => (int)_fbo;
+    public bool SupportsAsyncPbo => _pboSupported;
+    public int PendingPboCount => _pendingPboSlots.Count;
     public string GlRendererInfo { get; private set; } = "OpenGL";
 
     private readonly LibMpvNative.GetProcAddressFn _mpvProcCallback;
@@ -70,11 +83,29 @@ internal sealed unsafe class OffscreenGlContext : IDisposable
 
     private delegate uint GlCheckFramebufferStatusDelegate(uint target);
 
+    private delegate void GlGenBuffersDelegate(int n, uint* buffers);
+
+    private delegate void GlDeleteBuffersDelegate(int n, uint* buffers);
+
+    private delegate void GlBindBufferDelegate(uint target, uint buffer);
+
+    private delegate void GlBufferDataDelegate(uint target, nint size, nint data, uint usage);
+
+    private delegate nint GlMapBufferRangeDelegate(uint target, nint offset, nint length, uint access);
+
+    private delegate byte GlUnmapBufferDelegate(uint target);
+
     private GlGenFramebuffersDelegate? _glGenFramebuffers;
     private GlDeleteFramebuffersDelegate? _glDeleteFramebuffers;
     private GlBindFramebufferDelegate? _glBindFramebuffer;
     private GlFramebufferTexture2DDelegate? _glFramebufferTexture2D;
     private GlCheckFramebufferStatusDelegate? _glCheckFramebufferStatus;
+    private GlGenBuffersDelegate? _glGenBuffers;
+    private GlDeleteBuffersDelegate? _glDeleteBuffers;
+    private GlBindBufferDelegate? _glBindBuffer;
+    private GlBufferDataDelegate? _glBufferData;
+    private GlMapBufferRangeDelegate? _glMapBufferRange;
+    private GlUnmapBufferDelegate? _glUnmapBuffer;
 
     public nint MpvGetProcAddressPointer => _mpvProcCallbackPtr;
 
@@ -92,6 +123,7 @@ internal sealed unsafe class OffscreenGlContext : IDisposable
 
         InitializeWindowAndContext();
         InitializeFramebuffer();
+        InitializePixelBufferObjects();
     }
 
     private void InitializeWindowAndContext()
@@ -222,23 +254,114 @@ internal sealed unsafe class OffscreenGlContext : IDisposable
         _glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+    private void InitializePixelBufferObjects()
+    {
+        nint genPtr = LookupGlProc("glGenBuffers");
+        nint delPtr = LookupGlProc("glDeleteBuffers");
+        nint bindPtr = LookupGlProc("glBindBuffer");
+        nint dataPtr = LookupGlProc("glBufferData");
+        nint mapRangePtr = LookupGlProc("glMapBufferRange");
+        nint unmapPtr = LookupGlProc("glUnmapBuffer");
+
+        if (genPtr == 0 || delPtr == 0 || bindPtr == 0 || dataPtr == 0 || mapRangePtr == 0 || unmapPtr == 0)
+        {
+            _pboSupported = false;
+            return;
+        }
+
+        _glGenBuffers = Marshal.GetDelegateForFunctionPointer<GlGenBuffersDelegate>(genPtr);
+        _glDeleteBuffers = Marshal.GetDelegateForFunctionPointer<GlDeleteBuffersDelegate>(delPtr);
+        _glBindBuffer = Marshal.GetDelegateForFunctionPointer<GlBindBufferDelegate>(bindPtr);
+        _glBufferData = Marshal.GetDelegateForFunctionPointer<GlBufferDataDelegate>(dataPtr);
+        _glMapBufferRange = Marshal.GetDelegateForFunctionPointer<GlMapBufferRangeDelegate>(mapRangePtr);
+        _glUnmapBuffer = Marshal.GetDelegateForFunctionPointer<GlUnmapBufferDelegate>(unmapPtr);
+
+        fixed (uint* pboPtr = _pbos)
+        {
+            _glGenBuffers(PboRingCapacity, pboPtr);
+        }
+
+        nint byteSize = FrameByteSize;
+        for (int i = 0; i < PboRingCapacity; i++)
+        {
+            _glBindBuffer(GL_PIXEL_PACK_BUFFER, _pbos[i]);
+            _glBufferData(GL_PIXEL_PACK_BUFFER, byteSize, 0, GL_STREAM_READ);
+        }
+
+        _glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        _pboSupported = true;
+    }
+
     public void MakeCurrent()
     {
         if (!wglMakeCurrent(_hdc, _hglrc))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "wglMakeCurrent failed.");
     }
 
-    public void ReadFboRgba(byte[] destination)
+    public void EnqueueAsyncReadBgra()
     {
-        if (destination.Length < Width * Height * 4)
-            throw new ArgumentException("Destination buffer is smaller than RGBA frame.", nameof(destination));
+        if (!_pboSupported)
+            throw new InvalidOperationException("OpenGL PBO async readback is not supported on this context.");
+
+        if (_pendingPboSlots.Count >= PboRingCapacity)
+            throw new InvalidOperationException("All PBO slots are busy; drain one before queuing another frame.");
+
+        int slot = _nextPboSlot;
+        _nextPboSlot = (_nextPboSlot + 1) % PboRingCapacity;
 
         _glBindFramebuffer!(GL_FRAMEBUFFER, _fbo);
-        glFinish();
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        _glBindBuffer!(GL_PIXEL_PACK_BUFFER, _pbos[slot]);
+        glReadPixels(0, 0, Width, Height, GL_BGRA, GL_UNSIGNED_BYTE, 0);
+        _glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        _glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        _pendingPboSlots.Enqueue(slot);
+    }
+
+    public bool TryDequeueCompletedBgra(byte[] destination)
+    {
+        if (_pendingPboSlots.Count == 0)
+            return false;
+
+        if (destination.Length < FrameByteSize)
+            throw new ArgumentException("Destination buffer is smaller than BGRA frame.", nameof(destination));
+
+        int slot = _pendingPboSlots.Dequeue();
+        _glBindBuffer!(GL_PIXEL_PACK_BUFFER, _pbos[slot]);
+        nint mapped = _glMapBufferRange!(GL_PIXEL_PACK_BUFFER, 0, FrameByteSize, GL_MAP_READ_BIT);
+        if (mapped == 0)
+        {
+            _glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            throw new InvalidOperationException("glMapBufferRange returned null during PBO readback.");
+        }
+
+        try
+        {
+            fixed (byte* dstPtr = destination)
+            {
+                Buffer.MemoryCopy((void*)mapped, dstPtr, destination.Length, FrameByteSize);
+            }
+        }
+        finally
+        {
+            _glUnmapBuffer!(GL_PIXEL_PACK_BUFFER);
+            _glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        }
+
+        return true;
+    }
+
+    public void ReadFboBgraSync(byte[] destination)
+    {
+        if (destination.Length < FrameByteSize)
+            throw new ArgumentException("Destination buffer is smaller than BGRA frame.", nameof(destination));
+
+        _glBindFramebuffer!(GL_FRAMEBUFFER, _fbo);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
         fixed (byte* ptr = destination)
         {
-            glReadPixels(0, 0, Width, Height, GL_RGBA, GL_UNSIGNED_BYTE, (nint)ptr);
+            glReadPixels(0, 0, Width, Height, GL_BGRA, GL_UNSIGNED_BYTE, (nint)ptr);
         }
 
         _glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -284,6 +407,18 @@ internal sealed unsafe class OffscreenGlContext : IDisposable
             if (_hdc != 0 && _hglrc != 0)
             {
                 wglMakeCurrent(_hdc, _hglrc);
+                if (_pboSupported && _glDeleteBuffers is not null)
+                {
+                    fixed (uint* pboPtr = _pbos)
+                    {
+                        _glDeleteBuffers(PboRingCapacity, pboPtr);
+                    }
+
+                    Array.Clear(_pbos);
+                    _pendingPboSlots.Clear();
+                    _pboSupported = false;
+                }
+
                 if (_fbo != 0 && _glDeleteFramebuffers is not null)
                 {
                     uint fbo = _fbo;

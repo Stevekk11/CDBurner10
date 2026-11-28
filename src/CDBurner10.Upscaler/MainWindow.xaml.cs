@@ -1,6 +1,7 @@
 ﻿using CDBurner10.Upscaler.Engine;
 using CDBurner10.Upscaler.Services;
 using CDBurner10.Upscaler.Views;
+using CDBurner10.WinUI.Services;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -49,7 +50,10 @@ public sealed partial class MainWindow : Window
         _appWindow.Resize(new SizeInt32(1180, 820));
         _appWindow.Closing += MainWindow_AppWindowClosing;
 
-        _trayService = new TrayIconService(hwnd);
+        FilePickerHelper.RegisterWindowHandleProvider(() =>
+            App.MainWindow is null ? nint.Zero : WindowNative.GetWindowHandle(App.MainWindow));
+
+        _trayService = new TrayIconService(hwnd, "CDBurner10 Upscaler");
         _trayService.RestoreRequested += (_, _) => DispatcherQueue.TryEnqueue(() => _trayService.RestoreFromTray());
         _trayService.ExitRequested += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {

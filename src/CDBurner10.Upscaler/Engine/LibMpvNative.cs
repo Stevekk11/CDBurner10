@@ -413,5 +413,8 @@ internal static unsafe class LibMpvNative
     public static extern int mpv_render_context_render(nint ctx, MpvRenderParam* @params);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void mpv_render_context_report_swap(nint ctx);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void mpv_render_context_free(nint ctx);
 }

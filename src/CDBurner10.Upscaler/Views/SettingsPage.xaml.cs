@@ -3,6 +3,7 @@ using CDBurner10.Core.Utilities;
 using CDBurner10.Upscaler.Engine;
 using CDBurner10.Upscaler.Services;
 using CDBurner10.Upscaler.Views.Dialogs;
+using CDBurner10.WinUI.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 

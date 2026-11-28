@@ -1,10 +1,17 @@
 ﻿using System.Diagnostics;
-using CDBurner10.App.Converters;
 using CDBurner10.Core.Burning;
-using CDBurner10.Core.Settings;
+using CDBurner10.Core.Utilities;
 using Microsoft.UI.Dispatching;
 
-namespace CDBurner10.App.Services;
+namespace CDBurner10.WinUI.Services;
+
+public sealed record OperationTrackerOptions(
+    string AppDisplayName,
+    string NotificationGroup,
+    Func<bool> AreNotificationsEnabled,
+    Func<bool> AreProgressNotificationsEnabled,
+    Func<string, string>? Localizer = null,
+    string? ConvertingPhaseLabelOverride = null);
 
 /// <summary>
 /// Coordinates taskbar progress, tray tooltips, and desktop notifications
@@ -14,14 +21,21 @@ public sealed class OperationTracker : IDisposable
 {
     private const string ProgressTag = "op-progress";
     private const string StatusTag = "op-status";
-    private const string OpGroup = "cdburner10-op";
 
+    private readonly OperationTrackerOptions _options;
+    private readonly Func<string, string> _loc;
     private readonly object _lock = new();
     private TaskbarProgressService? _taskbar;
     private NotificationService? _notifications;
     private TrayIconService? _tray;
     private long _activeOpId;
     private bool _hasActiveOperation;
+
+    public OperationTracker(OperationTrackerOptions options)
+    {
+        _options = options;
+        _loc = options.Localizer ?? (static s => s);
+    }
 
     public bool HasActiveOperation
     {
@@ -40,7 +54,12 @@ public sealed class OperationTracker : IDisposable
 
             _tray = trayService;
             _taskbar = new TaskbarProgressService(hwnd, dispatcher);
-            _notifications = new NotificationService(hwnd, dispatcher, trayService);
+            _notifications = new NotificationService(
+                hwnd,
+                dispatcher,
+                trayService,
+                _options.AppDisplayName,
+                _options.NotificationGroup);
         }
     }
 
@@ -53,6 +72,7 @@ public sealed class OperationTracker : IDisposable
             taskbar = _taskbar;
             active = _hasActiveOperation;
         }
+
         taskbar?.ClearErrorIfIdle(active);
     }
 
@@ -85,17 +105,17 @@ public sealed class OperationTracker : IDisposable
         }
 
         taskbar?.SetState(TaskbarProgressState.Indeterminate);
-        tray?.UpdateTooltip($"CDBurner10 — {operationTitle}");
+        tray?.UpdateTooltip($"{_options.AppDisplayName} — {operationTitle}");
 
-        if (SettingsService.Default.Current.ShowNotifications)
+        if (_options.AreNotificationsEnabled())
         {
             notifications?.Show(
-                $"{operationTitle} — {Loc.T("Started")}",
+                $"{operationTitle} — {_loc("Started")}",
                 startMessage,
                 NotificationSeverity.Info,
                 silent: false,
                 tag: StatusTag,
-                group: OpGroup,
+                group: _options.NotificationGroup,
                 operationActive: true);
         }
 
@@ -130,26 +150,29 @@ public sealed class OperationTracker : IDisposable
         {
             if (phase == BurnPhase.Preparing && clamped <= 0)
                 taskbar?.SetState(TaskbarProgressState.Indeterminate);
+            else if (clamped <= 0)
+                taskbar?.SetState(TaskbarProgressState.Indeterminate);
             else
                 taskbar?.SetProgress(clamped, TaskbarProgressState.Normal);
         }
 
         string phaseLabel = GetPhaseLabel(phase);
-        tray?.UpdateTooltip($"CDBurner10 — {phaseLabel} ({(int)Math.Floor(clamped)}%)");
+        tray?.UpdateTooltip($"{_options.AppDisplayName} — {phaseLabel} ({(int)Math.Floor(clamped)}%)");
 
         var milestone = milestoneTracker.Evaluate(phase, clamped, elapsed, reportedRemaining);
-        if (milestone is ProgressMilestone m && SettingsService.Default.Current.ShowProgressNotifications)
+        if (milestone is ProgressMilestone m && _options.AreProgressNotificationsEnabled())
         {
-            string elapsedStr = FormatHelper.FormatDuration(m.Elapsed);
+            string elapsedStr = FileSizeFormatter.FormatDuration(m.Elapsed);
             string body;
             if (m.EstimatedRemaining is TimeSpan rem && rem > TimeSpan.Zero)
             {
                 var eta = DateTime.Now + rem;
-                body = $"{phaseLabel}: {m.MilestonePercent}% • {Loc.T("Elapsed")}: {elapsedStr} • {Loc.T("Remaining")}: ~{FormatHelper.FormatDuration(rem)} ({Loc.T("ETA")} {eta:HH:mm})";
+                body =
+                    $"{phaseLabel}: {m.MilestonePercent}% • {_loc("Elapsed")}: {elapsedStr} • {_loc("Remaining")}: ~{FileSizeFormatter.FormatDuration(rem)} ({_loc("ETA")} {eta:HH:mm})";
             }
             else
             {
-                body = $"{phaseLabel}: {m.MilestonePercent}% • {Loc.T("Elapsed")}: {elapsedStr}";
+                body = $"{phaseLabel}: {m.MilestonePercent}% • {_loc("Elapsed")}: {elapsedStr}";
             }
 
             notifications?.Show(
@@ -158,7 +181,7 @@ public sealed class OperationTracker : IDisposable
                 NotificationSeverity.Info,
                 silent: true,
                 tag: ProgressTag,
-                group: OpGroup,
+                group: _options.NotificationGroup,
                 operationActive: true);
         }
     }
@@ -198,23 +221,23 @@ public sealed class OperationTracker : IDisposable
         }
 
         taskbar?.Clear();
-        tray?.UpdateTooltip("CDBurner10");
+        tray?.UpdateTooltip(_options.AppDisplayName);
         notifications?.ClearProgressNotification();
 
-        if (SettingsService.Default.Current.ShowNotifications)
+        if (_options.AreNotificationsEnabled())
         {
-            string elapsedStr = FormatHelper.FormatDuration(elapsed);
+            string elapsedStr = FileSizeFormatter.FormatDuration(elapsed);
             string body = string.IsNullOrWhiteSpace(summaryMessage)
-                ? $"{Loc.T("Completed")} ({Loc.T("Elapsed")}: {elapsedStr})"
-                : $"{summaryMessage} ({Loc.T("Elapsed")}: {elapsedStr})";
+                ? $"{_loc("Completed")} ({_loc("Elapsed")}: {elapsedStr})"
+                : $"{summaryMessage} ({_loc("Elapsed")}: {elapsedStr})";
 
             notifications?.Show(
-                $"{operationTitle} — {Loc.T("Completed")}",
+                $"{operationTitle} — {_loc("Completed")}",
                 body,
                 NotificationSeverity.Success,
                 silent: false,
                 tag: StatusTag,
-                group: OpGroup,
+                group: _options.NotificationGroup,
                 operationActive: false);
         }
     }
@@ -235,7 +258,7 @@ public sealed class OperationTracker : IDisposable
         }
 
         taskbar?.Clear();
-        tray?.UpdateTooltip("CDBurner10");
+        tray?.UpdateTooltip(_options.AppDisplayName);
         notifications?.ClearProgressNotification();
     }
 
@@ -255,34 +278,34 @@ public sealed class OperationTracker : IDisposable
         }
 
         taskbar?.SetError(lastPercent);
-        tray?.UpdateTooltip("CDBurner10");
+        tray?.UpdateTooltip(_options.AppDisplayName);
         notifications?.ClearProgressNotification();
 
-        if (SettingsService.Default.Current.ShowNotifications)
+        if (_options.AreNotificationsEnabled())
         {
             notifications?.Show(
-                $"{operationTitle} — {Loc.T("Failed")}",
-                string.IsNullOrWhiteSpace(errorMessage) ? Loc.T("Operation failed.") : errorMessage,
+                $"{operationTitle} — {_loc("Failed")}",
+                string.IsNullOrWhiteSpace(errorMessage) ? _loc("Operation failed.") : errorMessage,
                 NotificationSeverity.Error,
                 silent: false,
                 tag: StatusTag,
-                group: OpGroup,
+                group: _options.NotificationGroup,
                 operationActive: false);
         }
     }
 
-    private static string GetPhaseLabel(BurnPhase phase) => phase switch
+    private string GetPhaseLabel(BurnPhase phase) => phase switch
     {
-        BurnPhase.Preparing => Loc.T("Preparing"),
-        BurnPhase.Converting => Loc.T("Converting"),
-        BurnPhase.Burning => Loc.T("Burning"),
-        BurnPhase.ClosingSession => Loc.T("Closing session"),
-        BurnPhase.Verifying => Loc.T("Verifying"),
-        BurnPhase.Erasing => Loc.T("Erasing"),
-        BurnPhase.Grabbing => Loc.T("Reading disc"),
-        BurnPhase.Completed => Loc.T("Completed"),
-        BurnPhase.Cancelled => Loc.T("Cancelled"),
-        BurnPhase.Failed => Loc.T("Failed"),
+        BurnPhase.Preparing => _loc("Preparing"),
+        BurnPhase.Converting => _options.ConvertingPhaseLabelOverride ?? _loc("Converting"),
+        BurnPhase.Burning => _loc("Burning"),
+        BurnPhase.ClosingSession => _loc("Closing session"),
+        BurnPhase.Verifying => _loc("Verifying"),
+        BurnPhase.Erasing => _loc("Erasing"),
+        BurnPhase.Grabbing => _loc("Reading disc"),
+        BurnPhase.Completed => _loc("Completed"),
+        BurnPhase.Cancelled => _loc("Cancelled"),
+        BurnPhase.Failed => _loc("Failed"),
         _ => phase.ToString()
     };
 
@@ -339,6 +362,9 @@ public sealed class OperationSession : IDisposable
             _milestoneTracker,
             _isPaused);
     }
+
+    public void Report(double percent, TimeSpan timeRemaining = default) =>
+        Report(percent, BurnPhase.Converting, timeRemaining);
 
     public void Report(double percent, BurnPhase phase = BurnPhase.Burning, TimeSpan timeRemaining = default)
     {

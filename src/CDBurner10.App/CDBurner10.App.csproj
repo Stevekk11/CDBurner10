@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CDBurner10.Core\CDBurner10.Core.csproj" />
+    <ProjectReference Include="..\CDBurner10.WinUI\CDBurner10.WinUI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

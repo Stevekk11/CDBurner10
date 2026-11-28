@@ -2,9 +2,9 @@
 using System.Text;
 using CDBurner10.Core.Dvd;
 using CDBurner10.Core.Utilities;
-using CDBurner10.Upscaler.Converters;
 using CDBurner10.Upscaler.Engine;
 using CDBurner10.Upscaler.Services;
+using CDBurner10.WinUI.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -193,8 +193,8 @@ public sealed partial class UpscalePage : Page
 
         SourceInfoText.Text =
             $"{_sourceInfo.ResolutionLabel} → {outW}×{outH} ({scale}×) • {_sourceInfo.FpsLabel} • " +
-            $"{FormatHelper.FormatDuration(_sourceInfo.Duration)} (~{_sourceInfo.EstimatedFrames:N0} frames) • " +
-            $"{_sourceInfo.VideoCodec.ToUpperInvariant()} • {audio} • {FormatHelper.FormatBytes(_sourceInfo.FileSizeBytes)}";
+            $"{FileSizeFormatter.FormatDuration(_sourceInfo.Duration)} (~{_sourceInfo.EstimatedFrames:N0} frames) • " +
+            $"{_sourceInfo.VideoCodec.ToUpperInvariant()} • {audio} • {FileSizeFormatter.Format(_sourceInfo.FileSizeBytes)}";
     }
 
     private void PresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -364,7 +364,7 @@ public sealed partial class UpscalePage : Page
         }
 
         AppendLog(
-            $"Source: {sourcePath} ({info.ResolutionLabel}, {info.FpsLabel}, {FormatHelper.FormatDuration(info.Duration)})");
+            $"Source: {sourcePath} ({info.ResolutionLabel}, {info.FpsLabel}, {FileSizeFormatter.FormatDuration(info.Duration)})");
         AppendLog($"Preset: {preset.DisplayName} ({preset.BackendLabel})");
         AppendLog($"Output: {expectedOutput}");
 
@@ -392,7 +392,8 @@ public sealed partial class UpscalePage : Page
             if (p.TotalFrames > 0) details.Add($"Frame {p.CurrentFrame:N0}/{p.TotalFrames:N0}");
             if (p.Fps > 0) details.Add($"{p.Fps:0.0} fps");
             if (p.Speed > 0) details.Add($"{p.Speed:0.00}×");
-            if (p.TimeRemaining > TimeSpan.Zero) details.Add($"ETA {FormatHelper.FormatDuration(p.TimeRemaining)}");
+            if (p.TimeRemaining > TimeSpan.Zero)
+                details.Add($"ETA {FileSizeFormatter.FormatDuration(p.TimeRemaining)}");
             ProgressDetailText.Text = string.Join(" • ", details);
 
             int milestone = (p.Percent / 10) * 10;
@@ -419,8 +420,8 @@ public sealed partial class UpscalePage : Page
 
             long outSize = File.Exists(actualOutput) ? new FileInfo(actualOutput).Length : 0;
             AppendLog(outSize > 0
-                ? $"Completed successfully in {FormatHelper.FormatDuration(watch.Elapsed)}. Saved '{Path.GetFileName(actualOutput)}' ({FormatHelper.FormatBytes(outSize)})."
-                : $"Completed successfully in {FormatHelper.FormatDuration(watch.Elapsed)}. Saved '{Path.GetFileName(actualOutput)}'.");
+                ? $"Completed successfully in {FileSizeFormatter.FormatDuration(watch.Elapsed)}. Saved '{Path.GetFileName(actualOutput)}' ({FileSizeFormatter.Format(outSize)})."
+                : $"Completed successfully in {FileSizeFormatter.FormatDuration(watch.Elapsed)}. Saved '{Path.GetFileName(actualOutput)}'.");
 
             OpenVideoButton.Visibility = Visibility.Visible;
             ShowInFolderButton.Visibility = Visibility.Visible;
@@ -431,14 +432,14 @@ public sealed partial class UpscalePage : Page
         {
             op.Cancel();
             ProgressStatusText.Text = "Upscale cancelled.";
-            AppendLog($"Upscale cancelled by user after {FormatHelper.FormatDuration(watch.Elapsed)}.");
+            AppendLog($"Upscale cancelled by user after {FileSizeFormatter.FormatDuration(watch.Elapsed)}.");
             ShowStatus(InfoBarSeverity.Warning, "Cancelled", "Video upscaling was cancelled.");
         }
         catch (Exception ex)
         {
             op.Fail(ex.Message);
             ProgressStatusText.Text = "Upscale failed.";
-            AppendLog($"ERROR after {FormatHelper.FormatDuration(watch.Elapsed)}: {ex.Message}");
+            AppendLog($"ERROR after {FileSizeFormatter.FormatDuration(watch.Elapsed)}: {ex.Message}");
             ShowStatus(InfoBarSeverity.Error, "Upscale Failed", ex.Message);
         }
         finally

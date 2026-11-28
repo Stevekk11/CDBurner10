@@ -3,7 +3,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 
-namespace CDBurner10.App.Services;
+namespace CDBurner10.WinUI.Services;
 
 public enum NotificationSeverity
 {
@@ -24,14 +24,23 @@ public sealed class NotificationService : IDisposable
     private readonly nint _hwnd;
     private readonly DispatcherQueue _dispatcher;
     private readonly TrayIconService? _trayService;
+    private readonly string _appDisplayName;
+    private readonly string _notificationGroup;
     private bool _appNotificationsRegistered;
     private bool _disposed;
 
-    public NotificationService(nint hwnd, DispatcherQueue dispatcher, TrayIconService? trayService)
+    public NotificationService(
+        nint hwnd,
+        DispatcherQueue dispatcher,
+        TrayIconService? trayService,
+        string appDisplayName = "CDBurner10",
+        string notificationGroup = "cdburner10-op")
     {
         _hwnd = hwnd;
         _dispatcher = dispatcher;
         _trayService = trayService;
+        _appDisplayName = string.IsNullOrWhiteSpace(appDisplayName) ? "CDBurner10" : appDisplayName;
+        _notificationGroup = string.IsNullOrWhiteSpace(notificationGroup) ? "cdburner10-op" : notificationGroup;
         TryInitializeAppNotifications();
     }
 
@@ -48,7 +57,7 @@ public sealed class NotificationService : IDisposable
             string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
             if (File.Exists(iconPath))
             {
-                mgr.Register("CDBurner10", new Uri(iconPath));
+                mgr.Register(_appDisplayName, new Uri(iconPath));
             }
             else
             {
@@ -136,7 +145,7 @@ public sealed class NotificationService : IDisposable
         {
             try
             {
-                _ = AppNotificationManager.Default.RemoveByTagAndGroupAsync("op-progress", "cdburner10-op");
+                _ = AppNotificationManager.Default.RemoveByTagAndGroupAsync("op-progress", _notificationGroup);
             }
             catch
             {
@@ -170,6 +179,7 @@ public sealed class NotificationService : IDisposable
             catch
             {
             }
+
             _appNotificationsRegistered = false;
         }
     }

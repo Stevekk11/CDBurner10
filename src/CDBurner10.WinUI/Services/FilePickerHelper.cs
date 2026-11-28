@@ -1,15 +1,20 @@
-using Windows.Storage.Pickers;
+﻿using Windows.Storage.Pickers;
 using WinRT.Interop;
 
-namespace CDBurner10.App.Services;
+namespace CDBurner10.WinUI.Services;
 
 public static class FilePickerHelper
 {
+    private static Func<nint>? _windowHandleProvider;
+
+    public static void RegisterWindowHandleProvider(Func<nint> provider)
+    {
+        _windowHandleProvider = provider;
+    }
+
     public static nint GetMainWindowHandle()
     {
-        if (App.MainWindow is null)
-            return nint.Zero;
-        return WindowNative.GetWindowHandle(App.MainWindow);
+        return _windowHandleProvider?.Invoke() ?? nint.Zero;
     }
 
     public static async Task<IReadOnlyList<string>> PickFilesAsync(
@@ -36,11 +41,9 @@ public static class FilePickerHelper
             var files = await picker.PickMultipleFilesAsync();
             return files?.Select(f => f.Path).ToList() ?? [];
         }
-        else
-        {
-            var file = await picker.PickSingleFileAsync();
-            return file is not null ? [file.Path] : [];
-        }
+
+        var file = await picker.PickSingleFileAsync();
+        return file is not null ? [file.Path] : [];
     }
 
     public static async Task<string?> PickSingleFileAsync(
@@ -51,7 +54,8 @@ public static class FilePickerHelper
         return result.Count > 0 ? result[0] : null;
     }
 
-    public static async Task<string?> PickFolderAsync(PickerLocationId startLocation = PickerLocationId.DocumentsLibrary)
+    public static async Task<string?> PickFolderAsync(
+        PickerLocationId startLocation = PickerLocationId.DocumentsLibrary)
     {
         var picker = new FolderPicker
         {

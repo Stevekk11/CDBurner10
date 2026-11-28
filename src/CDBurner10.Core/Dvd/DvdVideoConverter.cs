@@ -61,6 +61,7 @@ public enum DvdVideoEncoder
 {
     /// <summary>Use hardware GPU H.264 encoding (NVENC / QSV / AMF / MediaFoundation) when available, falling back to libx264.</summary>
     Auto,
+
     /// <summary>Always use CPU software encoding (libx264).</summary>
     Software
 }
@@ -69,8 +70,10 @@ public enum DvdMp4AspectRatio
 {
     /// <summary>Preserve the aspect ratio flagged by the source DVD/stream.</summary>
     Auto,
+
     /// <summary>Force 16:9 widescreen display aspect ratio (fixes misflagged 4:3 DVD-recorder broadcasts).</summary>
     Widescreen16x9,
+
     /// <summary>Force 4:3 standard display aspect ratio.</summary>
     Standard4x3
 }
@@ -165,29 +168,29 @@ public static class DvdVideoConverter
         {
             if (_hwEncoderProbed) return _hwEncoder;
 
-            string? ffmpeg = FindFfmpeg();
-            if (string.IsNullOrWhiteSpace(ffmpeg))
-            {
-                _hwEncoderProbed = true;
-                _hwEncoder = null;
-                return null;
-            }
-
-            foreach (var candidate in HardwareEncoderCandidates)
-            {
-                if (ProbeEncoder(ffmpeg, candidate))
-                {
-                    _hwEncoder = candidate;
-                    break;
-                }
-            }
+            _hwEncoder = DetectHardwareEncoder(HardwareEncoderCandidates);
 
             _hwEncoderProbed = true;
             return _hwEncoder;
         }
     }
 
-    private static bool ProbeEncoder(string ffmpeg, string encoder)
+    public static string? DetectHardwareEncoder(IEnumerable<string> candidates)
+    {
+        string? ffmpeg = FindFfmpeg();
+        if (string.IsNullOrWhiteSpace(ffmpeg))
+            return null;
+
+        foreach (var candidate in candidates)
+        {
+            if (ProbeEncoder(ffmpeg, candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    public static bool ProbeEncoder(string ffmpeg, string encoder)
     {
         try
         {
@@ -200,14 +203,14 @@ public static class DvdVideoConverter
                 RedirectStandardError = true
             };
             foreach (var arg in new[]
-            {
-                "-hide_banner", "-loglevel", "error", "-nostdin",
-                "-f", "lavfi", "-i", "color=c=black:s=128x128:d=0.1:r=25",
-                "-frames:v", "2",
-                "-pix_fmt", "yuv420p",
-                "-c:v", encoder,
-                "-f", "null", "-"
-            })
+                     {
+                         "-hide_banner", "-loglevel", "error", "-nostdin",
+                         "-f", "lavfi", "-i", "color=c=black:s=128x128:d=0.1:r=25",
+                         "-frames:v", "2",
+                         "-pix_fmt", "yuv420p",
+                         "-c:v", encoder,
+                         "-f", "null", "-"
+                     })
             {
                 psi.ArgumentList.Add(arg);
             }
@@ -219,6 +222,7 @@ public static class DvdVideoConverter
                 TryKill(process);
                 return false;
             }
+
             return process.ExitCode == 0;
         }
         catch
@@ -302,8 +306,10 @@ public static class DvdVideoConverter
         foreach (var candidate in FindInDirectories(wingetPackages, "Gyan.FFmpeg*", fileName))
             yield return candidate;
 
-        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "ffmpeg", "bin", fileName);
-        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "chocolatey", "bin", fileName);
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "ffmpeg", "bin",
+            fileName);
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "chocolatey", "bin", fileName);
     }
 
     private static IEnumerable<string> FindInDirectories(string root, string directoryPattern, string fileName)
@@ -383,16 +389,19 @@ public static class DvdVideoConverter
             letter = char.ToUpperInvariant(s[0]);
             return true;
         }
+
         if (s.Length == 2 && char.IsAsciiLetter(s[0]) && s[1] == ':')
         {
             letter = char.ToUpperInvariant(s[0]);
             return true;
         }
+
         if (s.Length == 3 && char.IsAsciiLetter(s[0]) && s[1] == ':' && (s[2] == '\\' || s[2] == '/'))
         {
             letter = char.ToUpperInvariant(s[0]);
             return true;
         }
+
         return false;
     }
 
@@ -416,6 +425,7 @@ public static class DvdVideoConverter
         {
             // Fall back to default name.
         }
+
         return "DVDMovie";
     }
 
@@ -432,7 +442,8 @@ public static class DvdVideoConverter
                 return;
             if (UnfinalizedDvdReader.TryScanDrive(letter.ToString(), out _))
                 return;
-            throw new InvalidOperationException($"Drive {driveRoot} does not contain a DVD-Video VIDEO_TS.IFO file or readable raw MPEG-2 video.");
+            throw new InvalidOperationException(
+                $"Drive {driveRoot} does not contain a DVD-Video VIDEO_TS.IFO file or readable raw MPEG-2 video.");
         }
 
         if (File.Exists(normalized)) return;
@@ -444,7 +455,8 @@ public static class DvdVideoConverter
                 : normalized;
             if (File.Exists(Path.Combine(videoTs, "VIDEO_TS.IFO")))
                 return;
-            throw new InvalidOperationException("The selected drive or folder does not contain a DVD-Video VIDEO_TS.IFO file.");
+            throw new InvalidOperationException(
+                "The selected drive or folder does not contain a DVD-Video VIDEO_TS.IFO file.");
         }
 
         throw new InvalidOperationException($"The source '{source}' was not found.");
@@ -466,7 +478,8 @@ public static class DvdVideoConverter
     public static async Task<DvdVideoInfo> ProbeAsync(string source, int titleNumber, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(source))
-            throw new InvalidOperationException("Select an optical drive, a DVD-Video ISO/MPG file, or a VIDEO_TS folder.");
+            throw new InvalidOperationException(
+                "Select an optical drive, a DVD-Video ISO/MPG file, or a VIDEO_TS folder.");
 
         string ffprobe = FindFfprobe() ?? throw new InvalidOperationException(InstallHint);
         string normalized = NormalizeSource(source);
@@ -477,7 +490,8 @@ public static class DvdVideoConverter
             !File.Exists(Path.Combine($"{driveLetter}:\\", "VIDEO_TS", "VIDEO_TS.IFO")))
         {
             UnfinalizedDvdScanResult? scan = null;
-            bool foundRaw = await Task.Run(() => UnfinalizedDvdReader.TryScanDrive(driveLetter.ToString(), out scan), ct);
+            bool foundRaw = await Task.Run(() => UnfinalizedDvdReader.TryScanDrive(driveLetter.ToString(), out scan),
+                ct);
             if (!foundRaw || scan is null)
                 throw new InvalidOperationException(
                     $"Drive {driveLetter}:\\ does not contain a DVD-Video VIDEO_TS.IFO file or readable raw MPEG-2 video.");
@@ -493,7 +507,8 @@ public static class DvdVideoConverter
             var mpegArgs = new[]
             {
                 "-v", "error",
-                "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
+                "-show_entries",
+                "format=duration:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
                 "-of", "json",
                 normalized
             };
@@ -559,6 +574,7 @@ public static class DvdVideoConverter
                     DisableTrim = true
                 };
             }
+
             result = retry;
         }
 
@@ -566,7 +582,8 @@ public static class DvdVideoConverter
         if (navTitles is { Count: > 0 })
         {
             var selected = resolvedTitle > 0
-                ? navTitles.FirstOrDefault(t => t.TitleNumber == resolvedTitle) ?? DvdNavigationWalker.SelectMainTitle(navTitles)
+                ? navTitles.FirstOrDefault(t => t.TitleNumber == resolvedTitle) ??
+                  DvdNavigationWalker.SelectMainTitle(navTitles)
                 : DvdNavigationWalker.SelectMainTitle(navTitles);
             return new DvdVideoInfo(
                 selected.Duration,
@@ -597,14 +614,18 @@ public static class DvdVideoConverter
         try
         {
             long sampleBytes = await Task.Run(() =>
-                UnfinalizedDvdReader.ReadSampleToFile(driveLetter, tempSample, scan.FirstMpegSector, 1024 * 1024, ct), ct);
+                    UnfinalizedDvdReader.ReadSampleToFile(driveLetter, tempSample, scan.FirstMpegSector, 1024 * 1024,
+                        ct),
+                ct);
             if (sampleBytes <= 0)
-                throw new InvalidOperationException($"Could not read MPEG-2 sample sectors from drive {driveLetter}:\\.");
+                throw new InvalidOperationException(
+                    $"Could not read MPEG-2 sample sectors from drive {driveLetter}:\\.");
 
             var args = new[]
             {
                 "-v", "error",
-                "-show_entries", "format=duration,bit_rate:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
+                "-show_entries",
+                "format=duration,bit_rate:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
                 "-of", "json",
                 tempSample
             };
@@ -623,7 +644,8 @@ public static class DvdVideoConverter
             if (scan.EstimatedTotalBytes > 0 &&
                 doc.RootElement.TryGetProperty("format", out var fmt) &&
                 fmt.TryGetProperty("bit_rate", out var brEl) &&
-                double.TryParse(brEl.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double bitRate) &&
+                double.TryParse(brEl.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out double bitRate) &&
                 bitRate > 100_000)
             {
                 double estSec = scan.EstimatedTotalBytes * 8.0 / bitRate;
@@ -663,6 +685,7 @@ public static class DvdVideoConverter
             args.Add("-trim");
             args.Add("0");
         }
+
         if (titleNumber > 0)
         {
             args.Add("-title");
@@ -671,7 +694,8 @@ public static class DvdVideoConverter
 
         args.AddRange(new[]
         {
-            "-show_entries", "format=duration:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
+            "-show_entries",
+            "format=duration:stream=index,codec_type,codec_name,channels,width,height,duration:stream_tags=language,title,DURATION",
             "-of", "json",
             normalizedSource
         });
@@ -693,7 +717,8 @@ public static class DvdVideoConverter
         double durationSeconds = 0;
         if (root.TryGetProperty("format", out var format) &&
             format.TryGetProperty("duration", out var durationElement) &&
-            double.TryParse(durationElement.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) &&
+            double.TryParse(durationElement.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                out var parsed) &&
             parsed > 0)
         {
             durationSeconds = parsed;
@@ -709,14 +734,17 @@ public static class DvdVideoConverter
             foreach (var stream in streams.EnumerateArray())
             {
                 string type = stream.TryGetProperty("codec_type", out var codecType) ? codecType.GetString() ?? "" : "";
-                string codec = stream.TryGetProperty("codec_name", out var codecName) ? codecName.GetString() ?? "" : "";
+                string codec = stream.TryGetProperty("codec_name", out var codecName)
+                    ? codecName.GetString() ?? ""
+                    : "";
                 int index = stream.TryGetProperty("index", out var idx) && idx.TryGetInt32(out var i) ? i : 0;
                 string? language = GetTag(stream, "language");
                 string? title = GetTag(stream, "title");
 
                 if (fallbackStreamDuration <= 0 &&
                     stream.TryGetProperty("duration", out var streamDur) &&
-                    double.TryParse(streamDur.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedStreamDur) &&
+                    double.TryParse(streamDur.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                        out var parsedStreamDur) &&
                     parsedStreamDur > 0)
                 {
                     fallbackStreamDuration = parsedStreamDur;
@@ -779,7 +807,8 @@ public static class DvdVideoConverter
 
         if (isPipedMpegStream)
         {
-            args.AddRange(new[] { "-fflags", "+genpts+igndts", "-err_detect", "ignore_err", "-f", "mpeg", "-i", "pipe:0" });
+            args.AddRange(new[]
+                { "-fflags", "+genpts+igndts", "-err_detect", "ignore_err", "-f", "mpeg", "-i", "pipe:0" });
         }
         else
         {
@@ -967,7 +996,8 @@ public static class DvdVideoConverter
         string normalizedSource = NormalizeSource(source);
         if (TryExtractDriveLetter(normalizedSource, out char sourceDriveLetter))
         {
-            CDBurner10.Core.Native.ScsiOpticalDevice.TrySetReadSpeed(sourceDriveLetter.ToString(), options.ReadSpeedKBps);
+            CDBurner10.Core.Native.ScsiOpticalDevice.TrySetReadSpeed(sourceDriveLetter.ToString(),
+                options.ReadSpeedKBps);
         }
 
         if (string.Equals(
@@ -983,7 +1013,8 @@ public static class DvdVideoConverter
 
         string? tempWalkedMpg = null;
         string inputForFfmpeg = normalizedSource;
-        bool isPreWalked = info.IsPreWalkedStream || (!TryExtractDriveLetter(normalizedSource, out _) && IsMpegStreamFile(normalizedSource));
+        bool isPreWalked = info.IsPreWalkedStream ||
+                           (!TryExtractDriveLetter(normalizedSource, out _) && IsMpegStreamFile(normalizedSource));
         char rawDriveLetter = '\0';
         bool isPipedUnfinalized = info.IsUnfinalizedRaw && TryExtractDriveLetter(normalizedSource, out rawDriveLetter);
 
@@ -1005,7 +1036,9 @@ public static class DvdVideoConverter
 
                 int walkTitle = options.TitleNumber > 0 ? options.TitleNumber : info.TitleNumber;
                 await Task.Run(() =>
-                    DvdNavigationWalker.WalkTitleToFile(normalizedSource, tempWalkedMpg, walkTitle, walkProgress, ct), ct);
+                        DvdNavigationWalker.WalkTitleToFile(normalizedSource, tempWalkedMpg, walkTitle, walkProgress,
+                            ct),
+                    ct);
 
                 inputForFfmpeg = tempWalkedMpg;
                 isPreWalked = true;
@@ -1039,6 +1072,7 @@ public static class DvdVideoConverter
                     ? Math.Min(effectiveDurationMs, maxDur.TotalMilliseconds)
                     : maxDur.TotalMilliseconds;
             }
+
             var totalMs = Math.Max(1, effectiveDurationMs);
 
             try
@@ -1085,7 +1119,13 @@ public static class DvdVideoConverter
                     }
                     finally
                     {
-                        try { process.StandardInput.Close(); } catch { }
+                        try
+                        {
+                            process.StandardInput.Close();
+                        }
+                        catch
+                        {
+                        }
                     }
                 });
             }
@@ -1098,7 +1138,10 @@ public static class DvdVideoConverter
                     {
                         if (string.IsNullOrWhiteSpace(line)) continue;
                         errors.Enqueue(line);
-                        while (errors.Count > 40 && errors.TryDequeue(out _)) { }
+                        while (errors.Count > 40 && errors.TryDequeue(out _))
+                        {
+                        }
+
                         progress?.Report(new DvdMp4Progress(-1, 0, 0, TimeSpan.Zero, string.Empty, line));
                     }
                 }
@@ -1121,20 +1164,23 @@ public static class DvdVideoConverter
                         string value = line[(separator + 1)..];
 
                         if (key is "speed" && value.EndsWith('x') &&
-                            double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSpeed))
+                            double.TryParse(value[..^1], NumberStyles.Float, CultureInfo.InvariantCulture,
+                                out var parsedSpeed))
                         {
                             speed = parsedSpeed;
                             Volatile.Write(ref latestSpeed, parsedSpeed);
                         }
                         else if (key is "fps" &&
-                                 double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedFps))
+                                 double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture,
+                                     out var parsedFps))
                         {
                             fps = parsedFps;
                             Volatile.Write(ref latestFps, parsedFps);
                         }
                         else if (!isPipedUnfinalized &&
                                  key is "out_time_us" or "out_time_ms" &&
-                                 long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var micros))
+                                 long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture,
+                                     out var micros))
                         {
                             double rawPercent = Math.Clamp(micros / (totalMs * 1000.0) * 100.0, 0, 100);
                             int displayPercent = isPreWalked
@@ -1242,6 +1288,7 @@ public static class DvdVideoConverter
             {
                 // Streams close when the process is killed.
             }
+
             throw;
         }
         catch
@@ -1265,7 +1312,13 @@ public static class DvdVideoConverter
 
     private static void TryDelete(string path)
     {
-        try { File.Delete(path); } catch { }
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     public static string GetLanguageName(string? code)

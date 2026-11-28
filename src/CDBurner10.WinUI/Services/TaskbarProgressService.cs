@@ -1,7 +1,7 @@
 ﻿using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 
-namespace CDBurner10.App.Services;
+namespace CDBurner10.WinUI.Services;
 
 public enum TaskbarProgressState
 {
@@ -122,7 +122,14 @@ public sealed class TaskbarProgressService : IDisposable
         var cts = Interlocked.Exchange(ref _errorClearCts, null);
         if (cts is not null)
         {
-            try { cts.Cancel(); } catch { }
+            try
+            {
+                cts.Cancel();
+            }
+            catch
+            {
+            }
+
             cts.Dispose();
         }
     }
@@ -172,6 +179,7 @@ public sealed class TaskbarProgressService : IDisposable
             catch
             {
             }
+
             _taskbar = null;
         }
     }
@@ -190,14 +198,29 @@ public sealed class TaskbarProgressService : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface ITaskbarList3
     {
-        [PreserveSig] int HrInit();
-        [PreserveSig] int AddTab(nint hwnd);
-        [PreserveSig] int DeleteTab(nint hwnd);
-        [PreserveSig] int ActivateTab(nint hwnd);
-        [PreserveSig] int SetActiveAlt(nint hwnd);
-        [PreserveSig] int MarkFullscreenWindow(nint hwnd, [MarshalAs(UnmanagedType.Bool)] bool fFullscreen);
-        [PreserveSig] int SetProgressValue(nint hwnd, ulong ullCompleted, ulong ullTotal);
-        [PreserveSig] int SetProgressState(nint hwnd, TBPFLAG tbpFlags);
+        [PreserveSig]
+        int HrInit();
+
+        [PreserveSig]
+        int AddTab(nint hwnd);
+
+        [PreserveSig]
+        int DeleteTab(nint hwnd);
+
+        [PreserveSig]
+        int ActivateTab(nint hwnd);
+
+        [PreserveSig]
+        int SetActiveAlt(nint hwnd);
+
+        [PreserveSig]
+        int MarkFullscreenWindow(nint hwnd, [MarshalAs(UnmanagedType.Bool)] bool fFullscreen);
+
+        [PreserveSig]
+        int SetProgressValue(nint hwnd, ulong ullCompleted, ulong ullTotal);
+
+        [PreserveSig]
+        int SetProgressState(nint hwnd, TBPFLAG tbpFlags);
     }
 
     [DllImport("user32.dll")]

@@ -2,6 +2,7 @@
 using CDBurner10.App.Services;
 using CDBurner10.App.Views;
 using CDBurner10.Core.Burning;
+using CDBurner10.WinUI.Services;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -50,14 +51,16 @@ public sealed partial class MainWindow : Window
         LocalizationService.Current.LanguageChanged += (_, _) =>
             DispatcherQueue.TryEnqueue(() => LocalizationService.Current.TranslateTree(Content as DependencyObject));
         ContentFrame.Navigated += (_, _) =>
-            DispatcherQueue.TryEnqueue(() => LocalizationService.Current.TranslateTree(ContentFrame.Content as DependencyObject));
+            DispatcherQueue.TryEnqueue(() =>
+                LocalizationService.Current.TranslateTree(ContentFrame.Content as DependencyObject));
         LocalizationService.Current.TranslateTree(Content as DependencyObject);
 
         AppServices.Current.NavigationHandler = NavigateTo;
         AppServices.Current.DrivesRefreshed += (_, _) => DispatcherQueue.TryEnqueue(UpdateDriveBar);
         AppServices.Current.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(AppServices.SelectedDrive) or nameof(AppServices.SelectedDriveDiscInfo) or nameof(AppServices.EngineStatusMessage))
+            if (e.PropertyName is nameof(AppServices.SelectedDrive) or nameof(AppServices.SelectedDriveDiscInfo)
+                or nameof(AppServices.EngineStatusMessage))
                 DispatcherQueue.TryEnqueue(UpdateDriveBar);
         };
 
@@ -79,7 +82,10 @@ public sealed partial class MainWindow : Window
         _appWindow.Resize(new SizeInt32(1280, 820));
         _appWindow.Closing += MainWindow_AppWindowClosing;
 
-        _trayService = new TrayIconService(hwnd);
+        FilePickerHelper.RegisterWindowHandleProvider(() =>
+            App.MainWindow is null ? nint.Zero : WindowNative.GetWindowHandle(App.MainWindow));
+
+        _trayService = new TrayIconService(hwnd, "CDBurner10", Loc.T);
         _trayService.RestoreRequested += (_, _) => DispatcherQueue.TryEnqueue(() => _trayService.RestoreFromTray());
         _trayService.ExitRequested += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
@@ -157,11 +163,13 @@ public sealed partial class MainWindow : Window
                     NavigateTo("data", first);
                     return;
                 }
+
                 if (first.EndsWith(".axp", StringComparison.OrdinalIgnoreCase))
                 {
                     NavigateTo("audio", first);
                     return;
                 }
+
                 if (first.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
                 {
                     NavigateTo("iso", first);
@@ -225,6 +233,7 @@ public sealed partial class MainWindow : Window
             var child = FindNavItemByTag(nvi.MenuItems, tag);
             if (child is not null) return child;
         }
+
         return null;
     }
 
@@ -310,11 +319,13 @@ public sealed partial class MainWindow : Window
             }
             else if (disc.IsBlank)
             {
-                MediaStatusText.Text = $"{disc.DiscTypeDescription} • {FormatHelper.FormatBytes(disc.FreeSizeBytes)} free";
+                MediaStatusText.Text =
+                    $"{disc.DiscTypeDescription} • {FormatHelper.FormatBytes(disc.FreeSizeBytes)} free";
             }
             else
             {
-                MediaStatusText.Text = $"{disc.DiscTypeDescription} • {FormatHelper.FormatBytes(disc.UsedSizeBytes)} used / {FormatHelper.FormatBytes(disc.FreeSizeBytes)} free";
+                MediaStatusText.Text =
+                    $"{disc.DiscTypeDescription} • {FormatHelper.FormatBytes(disc.UsedSizeBytes)} used / {FormatHelper.FormatBytes(disc.FreeSizeBytes)} free";
             }
         }
 

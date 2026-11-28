@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CDBurner10.Core.Audio;
 using CDBurner10.Core.Burning;
 using CDBurner10.Core.Settings;
+using CDBurner10.WinUI.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CDBurner10.App.Services;
@@ -14,7 +15,14 @@ public sealed partial class AppServices : ObservableObject, IDisposable
     public AudioPlayerService AudioPlayer { get; } = new();
     public DataCompilation ActiveDataCompilation { get; } = new();
     public AudioCompilation ActiveAudioCompilation { get; } = new();
-    public OperationTracker Operations { get; } = new();
+
+    public OperationTracker Operations { get; } = new(new OperationTrackerOptions(
+        "CDBurner10",
+        "cdburner10-op",
+        () => SettingsService.Default.Current.ShowNotifications,
+        () => SettingsService.Default.Current.ShowProgressNotifications,
+        LocalizationService.Current.Translate));
+
     public ObservableCollection<DriveModel> Drives { get; } = [];
 
     /// <summary>
@@ -22,17 +30,13 @@ public sealed partial class AppServices : ObservableObject, IDisposable
     /// </summary>
     public IDialogService Dialogs { get; set; } = new DefaultDialogService();
 
-    [ObservableProperty]
-    private DriveModel? _selectedDrive;
+    [ObservableProperty] private DriveModel? _selectedDrive;
 
-    [ObservableProperty]
-    private DiscInfoModel _selectedDriveDiscInfo = DiscInfoModel.Empty;
+    [ObservableProperty] private DiscInfoModel _selectedDriveDiscInfo = DiscInfoModel.Empty;
 
-    [ObservableProperty]
-    private string _engineStatusMessage = "Initializing burning engine...";
+    [ObservableProperty] private string _engineStatusMessage = "Initializing burning engine...";
 
-    [ObservableProperty]
-    private bool _isEngineInitialized;
+    [ObservableProperty] private bool _isEngineInitialized;
 
     /// <summary>
     /// Tracks whether the user is currently working on "Data" or "Audio" so DropBox routes files accordingly.
@@ -138,9 +142,16 @@ public sealed partial class AppServices : ObservableObject, IDisposable
                 {
                     foreach (var wav in wavs)
                     {
-                        try { ActiveAudioCompilation.Tracks.Add(AudioTrackItem.FromFile(wav, Settings.Current.AudioAutoCDText)); }
-                        catch { }
+                        try
+                        {
+                            ActiveAudioCompilation.Tracks.Add(AudioTrackItem.FromFile(wav,
+                                Settings.Current.AudioAutoCDText));
+                        }
+                        catch
+                        {
+                        }
                     }
+
                     SaveAudioSession();
                 }
             }
@@ -258,8 +269,28 @@ public sealed partial class AppServices : ObservableObject, IDisposable
         Operations.Dispose();
         SaveAudioSession();
         AudioPlayer.Dispose();
-        try { BassAudioEngine.Shutdown(); } catch { }
-        try { BurningEngine.Uninitialize(); } catch { }
-        try { Settings.Save(); } catch { }
+        try
+        {
+            BassAudioEngine.Shutdown();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            BurningEngine.Uninitialize();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            Settings.Save();
+        }
+        catch
+        {
+        }
     }
 }

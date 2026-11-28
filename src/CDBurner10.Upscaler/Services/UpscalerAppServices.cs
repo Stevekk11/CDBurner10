@@ -1,5 +1,6 @@
 ﻿using CDBurner10.Core.Dvd;
 using CDBurner10.Upscaler.Engine;
+using CDBurner10.WinUI.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CDBurner10.Upscaler.Services;
@@ -9,7 +10,13 @@ public sealed partial class UpscalerAppServices : ObservableObject, IDisposable
     public static UpscalerAppServices Current { get; } = new();
 
     public UpscalerSettingsService Settings => UpscalerSettingsService.Default;
-    public OperationTracker Operations { get; } = new();
+
+    public OperationTracker Operations { get; } = new(new OperationTrackerOptions(
+        "CDBurner10 Upscaler",
+        "cdburner10-upscaler-op",
+        () => UpscalerSettingsService.Default.Current.ShowNotifications,
+        () => UpscalerSettingsService.Default.Current.ShowProgressNotifications,
+        ConvertingPhaseLabelOverride: "Upscaling"));
 
     [ObservableProperty] private bool _isLibMpvAvailable;
 

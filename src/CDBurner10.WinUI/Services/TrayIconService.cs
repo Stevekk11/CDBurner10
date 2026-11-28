@@ -1,11 +1,16 @@
 ﻿using System.Runtime.InteropServices;
 
-namespace CDBurner10.Upscaler.Services;
+namespace CDBurner10.WinUI.Services;
 
+/// <summary>
+/// Pure-Win32 Shell_NotifyIconW tray icon with subclassed window message handling
+/// for restoring or exiting the application when ExitToNotify is enabled,
+/// plus fallback balloon/toast notifications when Windows App Notifications are unavailable.
+/// </summary>
 public sealed class TrayIconService : IDisposable
 {
     private const uint WM_USER = 0x0400;
-    private const uint WM_TRAYICON = WM_USER + 0x102;
+    private const uint WM_TRAYICON = WM_USER + 0x101;
     private const uint WM_LBUTTONDBLCLK = 0x0203;
     private const uint WM_RBUTTONUP = 0x0205;
     private const uint WM_CONTEXTMENU = 0x007B;
@@ -33,12 +38,14 @@ public sealed class TrayIconService : IDisposable
     private const int SW_HIDE = 0;
     private const int SW_RESTORE = 9;
 
-    private const nuint SubclassId = 0xCD11;
+    private const nuint SubclassId = 0xCD10;
     private const uint CmdRestore = 1001;
     private const uint CmdExit = 1002;
 
     private readonly object _sync = new();
     private readonly nint _hwnd;
+    private readonly string _appDisplayName;
+    private readonly Func<string, string> _localizer;
     private readonly SubclassProc _subclassDelegate;
     private bool _subclassInstalled;
     private bool _iconAdded;
@@ -50,22 +57,25 @@ public sealed class TrayIconService : IDisposable
     public event EventHandler? RestoreRequested;
     public event EventHandler? ExitRequested;
 
-    public TrayIconService(nint hwnd)
+    public TrayIconService(nint hwnd, string appDisplayName = "CDBurner10", Func<string, string>? localizer = null)
     {
         _hwnd = hwnd;
+        _appDisplayName = string.IsNullOrWhiteSpace(appDisplayName) ? "CDBurner10" : appDisplayName;
+        _localizer = localizer ?? (static s => s);
         _subclassDelegate = WindowSubclassProc;
         _subclassInstalled = SetWindowSubclass(_hwnd, _subclassDelegate, SubclassId, 0);
     }
 
-    public void HideToTray(string tooltip = "CDBurner10 Upscaler")
+    public void HideToTray(string? tooltip = null)
     {
+        string tip = string.IsNullOrWhiteSpace(tooltip) ? _appDisplayName : tooltip;
         lock (_sync)
         {
             if (_disposed || _hwnd == 0) return;
 
             CancelTemporaryCleanupLocked();
             _isHiddenToTray = true;
-            EnsureTrayIconLocked(tooltip);
+            EnsureTrayIconLocked(tip);
         }
 
         ShowWindow(_hwnd, SW_HIDE);
@@ -110,7 +120,7 @@ public sealed class TrayIconService : IDisposable
             if (_disposed || _hwnd == 0) return;
 
             CancelTemporaryCleanupLocked();
-            EnsureTrayIconLocked("CDBurner10 Upscaler");
+            EnsureTrayIconLocked(_appDisplayName);
             if (!_iconAdded) return;
 
             uint infoFlags = severity switch
@@ -122,7 +132,7 @@ public sealed class TrayIconService : IDisposable
             infoFlags |= NIIF_RESPECT_QUIET_TIME;
             if (silent) infoFlags |= NIIF_NOSOUND;
 
-            var data = CreateNotifyData("CDBurner10 Upscaler");
+            var data = CreateNotifyData(_appDisplayName);
             data.uFlags = NIF_INFO;
             data.szInfoTitle = Truncate(title, 63);
             data.szInfo = Truncate(message, 255);
@@ -130,7 +140,9 @@ public sealed class TrayIconService : IDisposable
             Shell_NotifyIconW(NIM_MODIFY, ref data);
 
             if (!_isHiddenToTray && !keepIconDuringOperation)
+            {
                 ScheduleTemporaryCleanupLocked(TimeSpan.FromSeconds(15));
+            }
         }
     }
 
@@ -174,7 +186,9 @@ public sealed class TrayIconService : IDisposable
                 lock (_sync)
                 {
                     if (!cts.IsCancellationRequested && !_isHiddenToTray && !_disposed)
+                    {
                         RemoveTrayIconLocked();
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -218,18 +232,24 @@ public sealed class TrayIconService : IDisposable
         _iconAdded = Shell_NotifyIconW(NIM_ADD, ref data);
     }
 
-    private NOTIFYICONDATAW CreateNotifyData(string tooltip) => new()
+    private NOTIFYICONDATAW CreateNotifyData(string tooltip)
     {
-        cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATAW>(),
-        hWnd = _hwnd,
-        uID = 1,
-        szTip = Truncate(tooltip, 127),
-        szInfo = string.Empty,
-        szInfoTitle = string.Empty
-    };
+        return new NOTIFYICONDATAW
+        {
+            cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATAW>(),
+            hWnd = _hwnd,
+            uID = 1,
+            szTip = Truncate(tooltip, 127),
+            szInfo = string.Empty,
+            szInfoTitle = string.Empty
+        };
+    }
 
-    private static string Truncate(string? value, int maxLength) =>
-        string.IsNullOrEmpty(value) ? string.Empty : value.Length > maxLength ? value[..maxLength] : value;
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Length > maxLength ? value[..maxLength] : value;
+    }
 
     private nint WindowSubclassProc(nint hWnd, uint uMsg, nint wParam, nint lParam, nuint uIdSubclass, nuint dwRefData)
     {
@@ -259,9 +279,9 @@ public sealed class TrayIconService : IDisposable
 
         try
         {
-            AppendMenuW(menu, MF_STRING, CmdRestore, "Open CDBurner10 Upscaler");
+            AppendMenuW(menu, MF_STRING, CmdRestore, _localizer($"Open {_appDisplayName}"));
             AppendMenuW(menu, MF_SEPARATOR, 0, null);
-            AppendMenuW(menu, MF_STRING, CmdExit, "Exit");
+            AppendMenuW(menu, MF_STRING, CmdExit, _localizer("Exit"));
 
             GetCursorPos(out POINT pt);
             SetForegroundWindow(_hwnd);
@@ -298,10 +318,14 @@ public sealed class TrayIconService : IDisposable
         }
 
         if (removeSubclass)
+        {
             RemoveWindowSubclass(_hwnd, _subclassDelegate, SubclassId);
+        }
 
         if (iconToDestroy != 0)
+        {
             DestroyIcon(iconToDestroy);
+        }
     }
 
     private delegate nint SubclassProc(nint hWnd, uint uMsg, nint wParam, nint lParam, nuint uIdSubclass,

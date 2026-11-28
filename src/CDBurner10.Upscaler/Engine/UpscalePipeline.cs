@@ -63,62 +63,9 @@ public static class UpscalePipeline
         lock (EncoderLock)
         {
             if (_hevcProbed) return _hevcHwEncoder;
-            string? ffmpeg = DvdVideoConverter.FindFfmpeg();
-            if (!string.IsNullOrWhiteSpace(ffmpeg))
-            {
-                foreach (var candidate in HevcHardwareCandidates)
-                {
-                    if (ProbeEncoder(ffmpeg, candidate))
-                    {
-                        _hevcHwEncoder = candidate;
-                        break;
-                    }
-                }
-            }
-
+            _hevcHwEncoder = DvdVideoConverter.DetectHardwareEncoder(HevcHardwareCandidates);
             _hevcProbed = true;
             return _hevcHwEncoder;
-        }
-    }
-
-    private static bool ProbeEncoder(string ffmpeg, string encoder)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = ffmpeg,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-            foreach (var arg in new[]
-                     {
-                         "-hide_banner", "-loglevel", "error", "-nostdin",
-                         "-f", "lavfi", "-i", "color=c=black:s=128x128:d=0.1:r=25",
-                         "-frames:v", "2",
-                         "-pix_fmt", "yuv420p",
-                         "-c:v", encoder,
-                         "-f", "null", "-"
-                     })
-            {
-                psi.ArgumentList.Add(arg);
-            }
-
-            using var process = Process.Start(psi);
-            if (process is null) return false;
-            if (!process.WaitForExit(4000))
-            {
-                TryKill(process);
-                return false;
-            }
-
-            return process.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
         }
     }
 
@@ -213,7 +160,7 @@ public static class UpscalePipeline
         CancellationToken ct)
     {
         var encPsi = BuildEncoderStartInfo(
-            ffmpeg, "rgba", outW, outH, fpsStr, source,
+            ffmpeg, "bgra", outW, outH, fpsStr, source,
             videoFilter: "format=yuv420p",
             encoder, muxerFormat, formatExt, tempOutputPath, settings);
 

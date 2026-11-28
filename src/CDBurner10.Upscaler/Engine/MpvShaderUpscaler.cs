@@ -1,12 +1,14 @@
-﻿using System.Diagnostics;
+﻿using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Threading.Channels;
 using CDBurner10.Core.Utilities;
 using CDBurner10.Upscaler.Services;
 
 namespace CDBurner10.Upscaler.Engine;
 
-internal static unsafe class MpvShaderUpscaler
+internal static class MpvShaderUpscaler
 {
     public static Task RunAsync(
         VideoSourceInfo source,
@@ -48,7 +50,7 @@ internal static unsafe class MpvShaderUpscaler
         return tcs.Task;
     }
 
-    private static void RunCore(
+    private static unsafe void RunCore(
         VideoSourceInfo source,
         UpscalerPreset preset,
         int targetWidth,
@@ -77,7 +79,8 @@ internal static unsafe class MpvShaderUpscaler
         using var gl = new OffscreenGlContext(targetWidth, targetHeight);
         gl.MakeCurrent();
         progress.Report(new UpscaleProgress(0, 0, source.EstimatedFrames, 0, 0, TimeSpan.Zero,
-            "Initializing libmpv...", $"OpenGL context: {gl.GlRendererInfo}"));
+            "Initializing libmpv...",
+            $"OpenGL context: {gl.GlRendererInfo} | Async PBO: {(gl.SupportsAsyncPbo ? $"Enabled ({OffscreenGlContext.PboRingCapacity}x ring)" : "Fallback sync")}"));
 
         nint mpv = LibMpvNative.mpv_create();
         if (mpv == 0)
@@ -88,19 +91,53 @@ internal static unsafe class MpvShaderUpscaler
         Exception? controlException = null;
 
         using var updateSignal = new AutoResetEvent(false);
-        using var renderThreadReady = new ManualResetEventSlim(false);
         using var stopControl = new ManualResetEventSlim(false);
-        using var frameCaptured = new AutoResetEvent(false);
 
         int eofReached = 0;
         int fileLoaded = 0;
         int renderFinished = 0;
-        int awaitingFrame = 1;
         long framesRendered = 0;
         double lastRenderedPts = -1.0;
+        long waitMpvTicks = 0;
+        long loadWaitTicks = 0;
+        long renderTicks = 0;
+        long pboReadTicks = 0;
+        long channelWaitTicks = 0;
+        var phaseSw = Stopwatch.StartNew();
 
         LibMpvNative.RenderUpdateCallbackFn updateCb = _ => updateSignal.Set();
         nint updateCbPtr = Marshal.GetFunctionPointerForDelegate(updateCb);
+
+        int frameBytes = gl.FrameByteSize;
+        var frameChannel = Channel.CreateBounded<(byte[] Buffer, int Length)>(new BoundedChannelOptions(4)
+        {
+            SingleWriter = true,
+            SingleReader = true,
+            FullMode = BoundedChannelFullMode.Wait
+        });
+
+        Task writerTask = PipeWriterLoopAsync(frameChannel.Reader, ffmpegInputStream, ct);
+
+        void EnqueueFrame(byte[] buf, int len)
+        {
+            if (frameChannel.Writer.TryWrite((buf, len)))
+                return;
+
+            long t0 = Stopwatch.GetTimestamp();
+            try
+            {
+                frameChannel.Writer.WriteAsync((buf, len), ct).AsTask().GetAwaiter().GetResult();
+            }
+            catch
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+                throw;
+            }
+            finally
+            {
+                channelWaitTicks += Stopwatch.GetTimestamp() - t0;
+            }
+        }
 
         try
         {
@@ -129,23 +166,16 @@ internal static unsafe class MpvShaderUpscaler
                         progress,
                         source.EstimatedFrames,
                         updateSignal,
-                        frameCaptured,
                         stopControl,
                         () => Volatile.Read(ref fileLoaded) != 0,
                         () => Volatile.Read(ref eofReached) != 0,
                         val => Volatile.Write(ref fileLoaded, val ? 1 : 0),
                         val => Volatile.Write(ref eofReached, val ? 1 : 0),
-                        () => Volatile.Write(ref awaitingFrame, 1),
                         ct);
                 }
                 catch (Exception ex)
                 {
                     controlException = ex;
-                    Volatile.Write(ref renderFinished, 1);
-                    updateSignal.Set();
-                }
-                finally
-                {
                     Volatile.Write(ref renderFinished, 1);
                     updateSignal.Set();
                 }
@@ -156,7 +186,6 @@ internal static unsafe class MpvShaderUpscaler
             };
             controlThread.Start();
 
-            byte[] rgbaBuffer = new byte[targetWidth * targetHeight * 4];
             var fbo = new LibMpvNative.MpvOpenglFbo
             {
                 Fbo = gl.FboId,
@@ -189,9 +218,14 @@ internal static unsafe class MpvShaderUpscaler
                 Data = 0
             };
 
+            int eofQuietChecks = 0;
             while (Volatile.Read(ref renderFinished) == 0 && !ct.IsCancellationRequested)
             {
-                updateSignal.WaitOne(50);
+                long tw0 = Stopwatch.GetTimestamp();
+                updateSignal.WaitOne(15);
+                long twDelta = Stopwatch.GetTimestamp() - tw0;
+                if (framesRendered == 0) loadWaitTicks += twDelta;
+                else waitMpvTicks += twDelta;
 
                 if (ct.IsCancellationRequested || Volatile.Read(ref renderFinished) != 0)
                     break;
@@ -200,51 +234,84 @@ internal static unsafe class MpvShaderUpscaler
                 if ((flags & LibMpvNative.MPV_RENDER_UPDATE_FRAME) != 0 &&
                     Volatile.Read(ref fileLoaded) != 0)
                 {
+                    eofQuietChecks = 0;
+                    bool atEof = Volatile.Read(ref eofReached) != 0;
+                    double pts = LibMpvNative.GetDoubleProperty(mpv, "time-pos");
+                    _ = atEof;
+
                     gl.MakeCurrent();
+                    long tr0 = Stopwatch.GetTimestamp();
                     int rc = LibMpvNative.mpv_render_context_render(renderCtx, renderParams);
+                    renderTicks += Stopwatch.GetTimestamp() - tr0;
                     if (rc < 0)
                         throw new InvalidOperationException(
                             $"mpv_render_context_render failed: {LibMpvNative.GetErrorMessage(rc)}");
 
-                    double pts = LibMpvNative.GetDoubleProperty(mpv, "time-pos");
-                    bool isDuplicateFrame = framesRendered > 0 && pts >= 0 && lastRenderedPts >= 0 &&
-                                            Math.Abs(pts - lastRenderedPts) < 1e-6;
+                    LibMpvNative.mpv_render_context_report_swap(renderCtx);
 
-                    // Only emit frame to encoder if we requested a frame step, haven't hit EOF, and it isn't a duplicate redraw
-                    if (Volatile.Read(ref eofReached) == 0 &&
-                        !isDuplicateFrame &&
-                        Interlocked.CompareExchange(ref awaitingFrame, 0, 1) == 1)
+                    if (gl.SupportsAsyncPbo)
                     {
-                        gl.ReadFboRgba(rgbaBuffer);
-                        ffmpegInputStream.Write(rgbaBuffer, 0, rgbaBuffer.Length);
-                        framesRendered++;
-                        lastRenderedPts = pts;
+                        gl.EnqueueAsyncReadBgra();
 
-                        double currentFps = elapsedWatch.Elapsed.TotalSeconds > 0.25
-                            ? framesRendered / elapsedWatch.Elapsed.TotalSeconds
-                            : 0;
-                        double speed = source.Fps > 0 && currentFps > 0 ? currentFps / source.Fps : 0;
-                        long total = Math.Max(framesRendered, source.EstimatedFrames);
-                        int pct = total > 0 ? (int)Math.Clamp(framesRendered * 100.0 / total, 0, 99) : 0;
-                        TimeSpan eta = currentFps > 0 && total > framesRendered
-                            ? TimeSpan.FromSeconds((total - framesRendered) / currentFps)
-                            : TimeSpan.Zero;
-
-                        if (framesRendered == 1 || framesRendered % 5 == 0)
+                        if (gl.PendingPboCount >= OffscreenGlContext.PboRingCapacity)
                         {
-                            progress.Report(new UpscaleProgress(
-                                Percent: pct,
-                                CurrentFrame: framesRendered,
-                                TotalFrames: total,
-                                Fps: currentFps,
-                                Speed: speed,
-                                TimeRemaining: eta,
-                                Message:
-                                $"Upscaling via libmpv GPU shaders (frame {framesRendered:N0} / {total:N0})..."));
+                            byte[] buf = ArrayPool<byte>.Shared.Rent(frameBytes);
+                            long td0 = Stopwatch.GetTimestamp();
+                            bool dequeued = gl.TryDequeueCompletedBgra(buf);
+                            pboReadTicks += Stopwatch.GetTimestamp() - td0;
+                            if (dequeued)
+                                EnqueueFrame(buf, frameBytes);
+                            else
+                                ArrayPool<byte>.Shared.Return(buf);
+                        }
+                    }
+                    else
+                    {
+                        byte[] buf = ArrayPool<byte>.Shared.Rent(frameBytes);
+                        try
+                        {
+                            gl.ReadFboBgraSync(buf);
+                        }
+                        catch
+                        {
+                            ArrayPool<byte>.Shared.Return(buf);
+                            throw;
                         }
 
-                        frameCaptured.Set();
+                        EnqueueFrame(buf, frameBytes);
                     }
+
+                    framesRendered++;
+                    lastRenderedPts = pts;
+
+                    double currentFps = elapsedWatch.Elapsed.TotalSeconds > 0.25
+                        ? framesRendered / elapsedWatch.Elapsed.TotalSeconds
+                        : 0;
+                    double speed = source.Fps > 0 && currentFps > 0 ? currentFps / source.Fps : 0;
+                    long total = Math.Max(framesRendered, source.EstimatedFrames);
+                    int pct = total > 0 ? (int)Math.Clamp(framesRendered * 100.0 / total, 0, 99) : 0;
+                    TimeSpan eta = currentFps > 0 && total > framesRendered
+                        ? TimeSpan.FromSeconds((total - framesRendered) / currentFps)
+                        : TimeSpan.Zero;
+
+                    if (framesRendered == 1 || framesRendered % 5 == 0)
+                    {
+                        progress.Report(new UpscaleProgress(
+                            Percent: pct,
+                            CurrentFrame: framesRendered,
+                            TotalFrames: total,
+                            Fps: currentFps,
+                            Speed: speed,
+                            TimeRemaining: eta,
+                            Message:
+                            $"Upscaling via libmpv GPU shaders (frame {framesRendered:N0} / {total:N0})..."));
+                    }
+                }
+                else if (Volatile.Read(ref eofReached) != 0)
+                {
+                    eofQuietChecks++;
+                    if (eofQuietChecks >= 2)
+                        break;
                 }
             }
 
@@ -256,7 +323,34 @@ internal static unsafe class MpvShaderUpscaler
             if (controlException is not null)
                 throw controlException;
 
+            // Drain remaining frames queued in PBO ring before completing the FFmpeg writer channel
+            gl.MakeCurrent();
+            while (gl.PendingPboCount > 0)
+            {
+                byte[] buf = ArrayPool<byte>.Shared.Rent(frameBytes);
+                long td0 = Stopwatch.GetTimestamp();
+                bool dequeued = gl.TryDequeueCompletedBgra(buf);
+                pboReadTicks += Stopwatch.GetTimestamp() - td0;
+                if (dequeued)
+                {
+                    EnqueueFrame(buf, frameBytes);
+                }
+                else
+                {
+                    ArrayPool<byte>.Shared.Return(buf);
+                    break;
+                }
+            }
+
+            frameChannel.Writer.TryComplete();
+            long tc0 = Stopwatch.GetTimestamp();
+            writerTask.GetAwaiter().GetResult();
+            channelWaitTicks += Stopwatch.GetTimestamp() - tc0;
+
             ffmpegInputStream.Flush();
+            double toMs = 1000.0 / Stopwatch.Frequency;
+            DiagnosticLogger.Verbose("MpvPerf",
+                $"total={phaseSw.Elapsed.TotalSeconds:F2}s frames={framesRendered} load={loadWaitTicks * toMs:F0}ms wait={waitMpvTicks * toMs:F0}ms render={renderTicks * toMs:F0}ms read={pboReadTicks * toMs:F0}ms pipe={channelWaitTicks * toMs:F0}ms");
             progress.Report(new UpscaleProgress(
                 Percent: 99,
                 CurrentFrame: framesRendered,
@@ -267,10 +361,25 @@ internal static unsafe class MpvShaderUpscaler
                     : 0,
                 TimeRemaining: TimeSpan.Zero,
                 Message: "Finalizing encoded video stream...",
-                LogLine: $"Rendered {framesRendered:N0} upscaled frames via libmpv GLSL shaders."));
+                LogLine:
+                $"Rendered {framesRendered:N0} upscaled frames via libmpv GLSL shaders ({phaseSw.Elapsed.TotalSeconds:F2}s)."));
         }
         finally
         {
+            frameChannel.Writer.TryComplete();
+            while (frameChannel.Reader.TryRead(out var leftover))
+            {
+                ArrayPool<byte>.Shared.Return(leftover.Buffer);
+            }
+
+            try
+            {
+                writerTask.Wait(2000);
+            }
+            catch
+            {
+            }
+
             GC.KeepAlive(updateCb);
             if (renderCtx != 0)
             {
@@ -298,6 +407,24 @@ internal static unsafe class MpvShaderUpscaler
         }
     }
 
+    private static async Task PipeWriterLoopAsync(
+        ChannelReader<(byte[] Buffer, int Length)> reader,
+        Stream ffmpegInputStream,
+        CancellationToken ct)
+    {
+        await foreach (var (buf, len) in reader.ReadAllAsync(ct).ConfigureAwait(false))
+        {
+            try
+            {
+                await ffmpegInputStream.WriteAsync(buf.AsMemory(0, len), ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buf);
+            }
+        }
+    }
+
     private static void ConfigureMpvOptions(nint mpv, UpscalerSettings settings)
     {
         LibMpvNative.Check(LibMpvNative.SetOptionString(mpv, "vo", "libmpv"), "set vo=libmpv");
@@ -306,9 +433,12 @@ internal static unsafe class MpvShaderUpscaler
         _ = LibMpvNative.SetOptionString(mpv, "audio", "no");
         _ = LibMpvNative.SetOptionString(mpv, "sub", "no");
         _ = LibMpvNative.SetOptionString(mpv, "osd-level", "0");
-        _ = LibMpvNative.SetOptionString(mpv, "pause", "yes");
-        _ = LibMpvNative.SetOptionString(mpv, "keep-open", "yes");
+        _ = LibMpvNative.SetOptionString(mpv, "pause", "no");
+        _ = LibMpvNative.SetOptionString(mpv, "keep-open", "no");
+        _ = LibMpvNative.SetOptionString(mpv, "untimed", "yes");
         _ = LibMpvNative.SetOptionString(mpv, "video-timing-offset", "0");
+        _ = LibMpvNative.SetOptionString(mpv, "video-sync", "desync");
+        _ = LibMpvNative.SetOptionString(mpv, "speed", "100");
         _ = LibMpvNative.SetOptionString(mpv, "framedrop", "no");
         _ = LibMpvNative.SetOptionString(mpv, "hr-seek-framedrop", "no");
         _ = LibMpvNative.SetOptionString(mpv, "interpolation", "no");
@@ -321,11 +451,12 @@ internal static unsafe class MpvShaderUpscaler
         _ = LibMpvNative.SetOptionString(mpv, "dscale", "mitchell");
     }
 
-    private static nint CreateMpvRenderContext(nint mpv, OffscreenGlContext gl, UpscalerSettings settings)
+    private static unsafe nint CreateMpvRenderContext(nint mpv, OffscreenGlContext gl, UpscalerSettings settings)
     {
+        string rendererChoice = settings.MpvRenderer;
         nint apiTypePtr = Marshal.StringToCoTaskMemUTF8("opengl");
         nint rendererNamePtr = Marshal.StringToCoTaskMemUTF8(
-            string.Equals(settings.MpvRenderer, "gpu", StringComparison.OrdinalIgnoreCase) ? "gpu" : "gpu-next");
+            string.Equals(rendererChoice, "gpu", StringComparison.OrdinalIgnoreCase) ? "gpu" : "gpu-next");
         try
         {
             var glInit = new LibMpvNative.MpvOpenglInitParams
@@ -364,19 +495,17 @@ internal static unsafe class MpvShaderUpscaler
         }
     }
 
-    private static void ControlLoop(
+    private static unsafe void ControlLoop(
         nint mpv,
         string sourceFile,
         IProgress<UpscaleProgress> progress,
         long estimatedFrames,
         AutoResetEvent updateSignal,
-        AutoResetEvent frameCaptured,
         ManualResetEventSlim stopControl,
         Func<bool> isFileLoaded,
         Func<bool> isEof,
         Action<bool> setFileLoaded,
         Action<bool> setEof,
-        Action requestNextFrame,
         CancellationToken ct)
     {
         LibMpvNative.Check(LibMpvNative.Command(mpv, "loadfile", sourceFile), "loadfile failed");
@@ -409,49 +538,9 @@ internal static unsafe class MpvShaderUpscaler
         if (ct.IsCancellationRequested || stopControl.IsSet)
             return;
 
-        // Wait for frame 0 capture, then deterministically step frame by frame
         while (!ct.IsCancellationRequested && !stopControl.IsSet && !isEof())
         {
-            while (!frameCaptured.WaitOne(25))
-            {
-                if (ct.IsCancellationRequested || stopControl.IsSet)
-                    return;
-
-                DrainMpvEvents(mpv, progress, estimatedFrames, setEof);
-                if (isEof() || LibMpvNative.GetFlagProperty(mpv, "eof-reached"))
-                {
-                    setEof(true);
-                    return;
-                }
-            }
-
-            if (ct.IsCancellationRequested || stopControl.IsSet)
-                return;
-
-            requestNextFrame();
-            int stepRc = LibMpvNative.Command(mpv, "frame-step");
-            DrainMpvEvents(mpv, progress, estimatedFrames, setEof);
-
-            if (stepRc < 0 || isEof() || LibMpvNative.GetFlagProperty(mpv, "eof-reached"))
-            {
-                setEof(true);
-                return;
-            }
-        }
-    }
-
-    private static void DrainMpvEvents(
-        nint mpv,
-        IProgress<UpscaleProgress> progress,
-        long estimatedFrames,
-        Action<bool> setEof)
-    {
-        while (true)
-        {
-            var ev = LibMpvNative.mpv_wait_event(mpv, 0);
-            if (ev->EventId == LibMpvNative.MPV_EVENT_NONE)
-                break;
-
+            var ev = LibMpvNative.mpv_wait_event(mpv, 0.02);
             if (ev->EventId == LibMpvNative.MPV_EVENT_LOG_MESSAGE)
             {
                 LogMpvEvent(ev, progress, estimatedFrames);
@@ -463,15 +552,26 @@ internal static unsafe class MpvShaderUpscaler
                     throw new InvalidOperationException(
                         $"libmpv playback error: {LibMpvNative.GetErrorMessage(end.Error)}");
                 setEof(true);
+                updateSignal.Set();
+                return;
             }
             else if (ev->EventId == LibMpvNative.MPV_EVENT_SHUTDOWN)
             {
                 setEof(true);
+                updateSignal.Set();
+                return;
+            }
+
+            if (LibMpvNative.GetFlagProperty(mpv, "eof-reached"))
+            {
+                setEof(true);
+                updateSignal.Set();
+                return;
             }
         }
     }
 
-    private static void LogMpvEvent(LibMpvNative.MpvEvent* ev, IProgress<UpscaleProgress> progress,
+    private static unsafe void LogMpvEvent(LibMpvNative.MpvEvent* ev, IProgress<UpscaleProgress> progress,
         long estimatedFrames)
     {
         if (ev->Data == 0) return;
