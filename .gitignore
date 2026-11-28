@@ -7,7 +7,9 @@ TestResults/
 *.zip
 *.msi
 *.wixpdb
+*.7z
 third_party/
+native/upscaler/libmpv-2.dll
 
 # Visual Studio / Rider / VS Code
 .vs/
