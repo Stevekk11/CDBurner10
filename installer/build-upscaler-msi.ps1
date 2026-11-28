@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Version = "10.6.2.0",
+    [string]$Version = "10.6.3.0",
     [switch]$SkipPublish,
     [switch]$DownloadLibMpv
 )
