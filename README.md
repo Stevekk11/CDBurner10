@@ -1,5 +1,5 @@
 # CDBurner10 — Open-Source 64-bit Optical Media & DVD Archiving Suite
-
+![Home screen](docs/assets/screenshot-home.jpg)
 An independent, 100% open-source (**GNU GPL v3.0**) optical media authoring, burning, ripping, and DVD archiving suite for Windows 10/11 built from the ground up on **.NET 10 (win-x64)** and **WinUI 3 (Windows App SDK 1.7)** — with zero proprietary SDKs and zero closed-source DLLs.
 
 While originally inspired by classic Windows disc-burning utilities (and retaining compatibility with `.dxp` / `.axp` compilation files, `UserSettings.ini` import, and `cdbxpcmd` CLI syntax), **CDBurner10** is a standalone, clean-room open-source project powered by Windows IMAPI2, SPTI SCSI MMC, NAudio, TagLibSharp, FFmpeg, and 64-bit `libdvdnav`/`libdvdread`/`libdvdcss`/`libcdio`.
