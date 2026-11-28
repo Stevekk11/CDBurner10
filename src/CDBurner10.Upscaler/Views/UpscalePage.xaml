@@ -121,9 +121,10 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="1.4*" />
+                                    <ColumnDefinition Width="1.2*" />
+                                    <ColumnDefinition Width="0.9*" />
+                                    <ColumnDefinition Width="1.1*" />
+                                    <ColumnDefinition Width="1.3*" />
                                 </Grid.ColumnDefinitions>
 
                                 <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
@@ -143,6 +144,10 @@
                                     <TextBlock x:Name="SpecParamsText" Style="{StaticResource BodyStrongTextBlockStyle}" />
                                 </StackPanel>
                                 <StackPanel Grid.Row="0" Grid.Column="4" Spacing="2">
+                                    <TextBlock Text="Est. / 10 min" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock x:Name="SpecEstRuntimeText" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="5" Spacing="2">
                                     <TextBlock Text="Execution Backend" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <TextBlock x:Name="SpecBackendText" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
                                 </StackPanel>
@@ -151,7 +156,7 @@
                                     x:Name="SpecUsageText"
                                     Grid.Row="1"
                                     Grid.Column="0"
-                                    Grid.ColumnSpan="5"
+                                    Grid.ColumnSpan="6"
                                     Style="{StaticResource CaptionTextBlockStyle}"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     TextWrapping="Wrap" />

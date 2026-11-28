@@ -16,6 +16,7 @@ public sealed record UpscalerPreset(
     string Filters,
     string ParameterCount,
     string RecommendedUsage,
+    string EstimatedRuntimePer10Min,
     UpscalerBackendKind Backend,
     IReadOnlyList<string> HqShaders,
     IReadOnlyList<string> FastShaders,
@@ -49,6 +50,7 @@ public static class UpscalerPresets
             Filters: "Clamp + Restore VL + 2× VL/M",
             ParameterCount: "~450k",
             RecommendedUsage: "Balanced restoration & upscaling for 1080p anime / web sources",
+            EstimatedRuntimePer10Min: "~8–14 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders:
             [
@@ -79,6 +81,7 @@ public static class UpscalerPresets
             Filters: "Clamp + Restore Soft VL + 2× VL/M",
             ParameterCount: "~450k",
             RecommendedUsage: "Soft line-art reconstruction; lowers ringing/aliasing on 720p anime",
+            EstimatedRuntimePer10Min: "~8–14 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders:
             [
@@ -109,6 +112,7 @@ public static class UpscalerPresets
             Filters: "Clamp + Upscale Denoise VL + 2× M",
             ParameterCount: "~400k",
             RecommendedUsage: "High perceptual quality with denoising for clean or compressed animation",
+            EstimatedRuntimePer10Min: "~8–13 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders:
             [
@@ -137,6 +141,7 @@ public static class UpscalerPresets
             Filters: "Clamp + Restore VL/M + 2× VL/M",
             ParameterCount: "~500k",
             RecommendedUsage: "Maximum restoration strength for blurry, low-bitrate, or artifacted anime",
+            EstimatedRuntimePer10Min: "~10–16 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders:
             [
@@ -169,6 +174,7 @@ public static class UpscalerPresets
             Filters: "Clamp + Restore Soft VL/M + 2× VL/M",
             ParameterCount: "~500k",
             RecommendedUsage: "Strong soft restoration for DVD / SD / 720p anime with halo reduction",
+            EstimatedRuntimePer10Min: "~10–16 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders:
             [
@@ -201,6 +207,7 @@ public static class UpscalerPresets
             Filters: "Clamp + Denoise VL + Restore M + 2× M",
             ParameterCount: "~480k",
             RecommendedUsage: "High-detail upscaling with denoising & secondary line refinement",
+            EstimatedRuntimePer10Min: "~9–15 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders:
             [
@@ -232,6 +239,7 @@ public static class UpscalerPresets
             Filters: "96",
             ParameterCount: "~4m",
             RecommendedUsage: "Highest-quality reconstruction for non real-time tasks",
+            EstimatedRuntimePer10Min: "~2–4 hours",
             Backend: UpscalerBackendKind.OnnxDirectMl,
             HqShaders: [],
             FastShaders: [],
@@ -247,6 +255,7 @@ public static class UpscalerPresets
             Filters: "64",
             ParameterCount: "~926k",
             RecommendedUsage: "Balanced option for non real-time tasks",
+            EstimatedRuntimePer10Min: "~45–90 min",
             Backend: UpscalerBackendKind.OnnxDirectMl,
             HqShaders: [],
             FastShaders: [],
@@ -262,6 +271,7 @@ public static class UpscalerPresets
             Filters: "32",
             ParameterCount: "~48k",
             RecommendedUsage: "Real-time tasks if hardware allows",
+            EstimatedRuntimePer10Min: "~14–20 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders: ["ArtCNN_C4F32.glsl"],
             FastShaders: ["ArtCNN_C4F32.glsl"]),
@@ -276,6 +286,7 @@ public static class UpscalerPresets
             Filters: "16",
             ParameterCount: "~12k",
             RecommendedUsage: "Lightweight option for real-time tasks",
+            EstimatedRuntimePer10Min: "~8–12 min",
             Backend: UpscalerBackendKind.MpvGlslShader,
             HqShaders: ["ArtCNN_C4F16.glsl"],
             FastShaders: ["ArtCNN_C4F16.glsl"])

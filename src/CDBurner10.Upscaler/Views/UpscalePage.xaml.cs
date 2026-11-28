@@ -234,6 +234,7 @@ public sealed partial class UpscalePage : Page
         SpecLayersText.Text = p.ResidualBlocksOrLayers;
         SpecFiltersText.Text = p.Filters;
         SpecParamsText.Text = p.ParameterCount;
+        SpecEstRuntimeText.Text = p.EstimatedRuntimePer10Min;
         SpecBackendText.Text = p.BackendLabel;
         SpecUsageText.Text = $"Recommended usage: {p.RecommendedUsage}";
     }
