@@ -2,6 +2,7 @@
 bin/
 obj/
 deploy/
+deploy-upscaler/
 installer/out/
 TestResults/
 *.zip

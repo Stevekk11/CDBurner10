@@ -1,0 +1,141 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="CDBurner10 Upscaler"
+           Manufacturer="CDBurner10"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="E7C41A8B-5D92-4E3A-B104-8F29D6C3E701"
+           Scope="perMachine"
+           Language="1033"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="CDBurner10 Upscaler — AI &amp; Shader Video Upscaler Installer"
+                        Manufacturer="CDBurner10" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+                  AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="UpscalerAppIcon" SourceFile="$(var.AppIconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="UpscalerAppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Stevekk11/CDBurner10" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Stevekk11/CDBurner10" />
+    <Property Id="ARPCOMMENTS" Value="Open-source .NET 10 + WinUI 3 video upscaler powered by libmpv GLSL shaders (Anime4K, ArtCNN) and ONNX Runtime DirectML." />
+
+    <!-- Default install location for FeatureTree UI -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicensePath)" />
+
+    <ui:WixUI Id="WixUI_FeatureTree" />
+
+    <!-- Directory structure (64-bit) -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="CDBurner10 Upscaler" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="CDBurner10 Upscaler" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- Core application files harvested from deploy-upscaler\ -->
+    <ComponentGroup Id="UpscalerAppFiles" Directory="INSTALLFOLDER">
+      <Component Id="UpscalerMainExecutableComponent" Guid="A1B2C3D4-E5F6-4789-9012-3456789ABC01">
+        <File Id="CDBurner10UpscalerExe" Source="$(var.DeployDir)\CDBurner10.Upscaler.exe" KeyPath="yes" />
+      </Component>
+      <Files Include="$(var.DeployDir)\**">
+        <Exclude Files="$(var.DeployDir)\CDBurner10.Upscaler.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- Start Menu shortcuts -->
+    <ComponentGroup Id="UpscalerStartMenuShortcuts" Directory="ApplicationProgramsFolder">
+      <Component Id="UpscalerStartMenuShortcutComponent" Guid="B2C3D4E5-F6A7-4890-9123-456789ABCD02">
+        <Shortcut Id="UpscalerAppStartMenuShortcut"
+                  Name="CDBurner10 Upscaler"
+                  Description="Open-source AI &amp; shader video upscaler (Anime4K &amp; ArtCNN)"
+                  Target="[INSTALLFOLDER]CDBurner10.Upscaler.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="UpscalerAppIcon" />
+        <Shortcut Id="UpscalerUninstallStartMenuShortcut"
+                  Name="Uninstall CDBurner10 Upscaler"
+                  Description="Uninstall CDBurner10 Upscaler"
+                  Target="[SystemFolder]msiexec.exe"
+                  Arguments="/x [ProductCode]" />
+        <RemoveFolder Id="RemoveUpscalerProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\CDBurner10 Upscaler\Installer"
+                       Name="StartMenuShortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Optional Desktop shortcut -->
+    <ComponentGroup Id="UpscalerDesktopShortcuts" Directory="DesktopFolder">
+      <Component Id="UpscalerDesktopShortcutComponent" Guid="C3D4E5F6-A7B8-4901-9234-56789ABCDE03">
+        <Shortcut Id="UpscalerAppDesktopShortcut"
+                  Name="CDBurner10 Upscaler"
+                  Description="CDBurner10 Upscaler"
+                  Target="[INSTALLFOLDER]CDBurner10.Upscaler.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="UpscalerAppIcon" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\CDBurner10 Upscaler\Installer"
+                       Name="DesktopShortcut"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Optional CLI on System PATH -->
+    <ComponentGroup Id="UpscalerCliPathIntegration" Directory="INSTALLFOLDER">
+      <Component Id="UpscalerCliPathComponent" Guid="D4E5F6A7-B8C9-4012-9345-6789ABCDEF04">
+        <Environment Id="AddUpscalerInstallFolderToPath"
+                     Name="PATH"
+                     Value="[INSTALLFOLDER]"
+                     Permanent="no"
+                     Part="last"
+                     Action="set"
+                     System="yes" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\CDBurner10 Upscaler\Installer"
+                       Name="CliPath"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Installable Features -->
+    <Feature Id="CoreApplication"
+             Title="CDBurner10 Upscaler"
+             Description="WinUI 3 64-bit video upscaler, libmpv GLSL shaders (Anime4K v4, ArtCNN C4F32/C4F16), ONNX Runtime DirectML models (ArtCNN R16F96/R8F64), and CLI support."
+             Level="1"
+             AllowAbsent="no"
+             ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="UpscalerAppFiles" />
+      <ComponentGroupRef Id="UpscalerStartMenuShortcuts" />
+    </Feature>
+
+    <Feature Id="DesktopShortcutFeature"
+             Title="Desktop Shortcut"
+             Description="Create a CDBurner10 Upscaler shortcut on your Desktop."
+             Level="1">
+      <ComponentGroupRef Id="UpscalerDesktopShortcuts" />
+    </Feature>
+
+    <Feature Id="CliPathFeature"
+             Title="Add CDBurner10.Upscaler to System PATH"
+             Description="Allow running CDBurner10.Upscaler --cli-upscale from any Command Prompt or PowerShell window."
+             Level="1">
+      <ComponentGroupRef Id="UpscalerCliPathIntegration" />
+    </Feature>
+
+  </Package>
+</Wix>

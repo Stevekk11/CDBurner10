@@ -1,0 +1,120 @@
+﻿name: Build and Release Upscaler MSI
+
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "installer/build-upscaler-msi.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: "release-upscaler-msi"
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version and check if bumped
+        id: version
+        shell: pwsh
+        run: |
+          $script = Get-Content -Raw "installer/build-upscaler-msi.ps1"
+          if ($script -notmatch '\[string\]\$Version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)"') {
+            throw "Could not extract default `$Version from installer/build-upscaler-msi.ps1"
+          }
+          $fullVersion = $Matches[1]
+          $shortVersion = ($fullVersion -split '\.')[0..2] -join '.'
+          $tag = "upscaler-v$shortVersion"
+
+          Write-Host "Detected Upscaler version: $fullVersion (tag: $tag)"
+
+          $existingTag = git tag -l $tag
+          if ($existingTag) {
+            Write-Host "Tag $tag already exists. Skipping Upscaler MSI build and release."
+            "should_release=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Host "Tag $tag does not exist yet. Proceeding with Upscaler MSI build and release."
+            "should_release=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+          "full_version=$fullVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "short_version=$shortVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "msi_path=installer/out/CDBurner10-Upscaler-$shortVersion-win-x64.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Setup .NET 10
+        if: steps.version.outputs.should_release == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install WiX Toolset
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          wix eula accept wix7
+          wix extension add -g WixToolset.UI.wixext
+
+      - name: Sync version in About dialog, manifest, and build props
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          $fullVersion = "${{ steps.version.outputs.full_version }}"
+          $shortVersion = "${{ steps.version.outputs.short_version }}"
+
+          # 1. Directory.Build.props
+          $propsPath = "Directory.Build.props"
+          $props = Get-Content -Raw $propsPath
+          $props = [regex]::Replace($props, '<(Version|AssemblyVersion|FileVersion)>[^<]+</\1>', "<`$1>$fullVersion</`$1>")
+          Set-Content -Path $propsPath -Value $props -NoNewline -Encoding UTF8
+
+          # 2. Upscaler manifest
+          $manifestPath = "src/CDBurner10.Upscaler/app.manifest"
+          if (Test-Path $manifestPath) {
+            $manifest = Get-Content -Raw $manifestPath
+            $manifest = [regex]::Replace($manifest, '(<assemblyIdentity\b[^>]*\bversion=")[^"]+(")', "`${1}$fullVersion`${2}")
+            Set-Content -Path $manifestPath -Value $manifest -NoNewline -Encoding UTF8
+          }
+
+          # 3. Upscaler AboutDialog.xaml
+          $aboutPath = "src/CDBurner10.Upscaler/Views/Dialogs/AboutDialog.xaml"
+          if (Test-Path $aboutPath) {
+            $about = Get-Content -Raw $aboutPath
+            $about = [regex]::Replace($about, 'Version\s+[0-9]+\.[0-9]+\.[0-9]+', "Version $shortVersion")
+            Set-Content -Path $aboutPath -Value $about -NoNewline -Encoding UTF8
+          }
+
+          Write-Host "Synced Upscaler version to $fullVersion (About: $shortVersion)"
+
+      - name: Build Upscaler MSI
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          ./installer/build-upscaler-msi.ps1 -Version "${{ steps.version.outputs.full_version }}" -DownloadLibMpv
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $shortVersion = "${{ steps.version.outputs.short_version }}"
+          $msiPath = "${{ steps.version.outputs.msi_path }}"
+          if (-not (Test-Path $msiPath)) {
+            throw "Expected MSI not found at $msiPath"
+          }
+          gh release create $tag $msiPath `
+            --target "${{ github.sha }}" `
+            --title "CDBurner10 Upscaler v$shortVersion" `
+            --generate-notes
