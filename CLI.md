@@ -1,4 +1,4 @@
-﻿# CDBurner10 CLI Reference (`cdbxpcmd.exe`)
+﻿# CDBurner10 CLI Reference for humans and AI agents (`cdbxpcmd.exe`)
 
 `cdbxpcmd.exe` is the 64-bit command-line interface for **CDBurner10**, designed with syntax compatibility for classic `cdbxpcmd` automation scripts alongside modern optical and DVD-to-MP4 capabilities. It uses the same `CDBurner10.Core` engine as the desktop app (Windows IMAPI2, SPTI SCSI MMC, NAudio, FFmpeg, and 64-bit `libdvdnav`/`libdvdread`/`libdvdcss`).
 
