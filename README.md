@@ -14,8 +14,26 @@ While originally inspired by classic Windows disc-burning utilities (and retaini
   - **Open-Source Audio & Ripping:** Audio playback, CD-DA ripping & CD-Text, ReplayGain, crossfading, and CUE/M3U/WPL/NRA support via **NAudio**, **TagLibSharp**, **FFmpeg**, and Win32 CD-DA IOCTLs.
   - **ISO & Compilation Tooling:** Pure-managed `BIN` / `NRG` / `B5I` → `ISO` converters, `.dxp` / `.axp` project compatibility, disc spanning, cover printing, and JSON settings (with portable mode & legacy `UserSettings.ini` import).
 - **`src/CDBurner10.Cli`** (`cdbxpcmd.exe`) — Full CLI parity (`--list-drives`, `--eject`, `--load`, `--wait-for-disc`, `--erase`, `--burn-data`, `--burn-audio`, `--burn-video`, `--burn-iso`, `--dvd-to-mp4`).
-- **`src/CDBurner10.App`** (`CDBurner10.exe`) — Unpackaged 64-bit Windows 11 **WinUI 3 + Mica** desktop app featuring 12 cached pages, floating DropBox window, 13 Fluent `ContentDialog`s (including **Rip Audio CD** with **Export Tracks to...**), multi-session disc capacity visualization, and automatic Audio Compilation / temp-rip session persistence across restarts.
-- **`tests/CDBurner10.Tests`** — Automated xUnit test suite covering compilations, session persistence, ISO converters, `libdvdnav` / `libdvdcss`, DVD-to-MP4, unfinalized DVD recovery, disc spanning, settings, audio engine, and CLI execution.
+- **`src/CDBurner10.App`** (`CDBurner10.exe`) — Unpackaged 64-bit Windows 11 **WinUI 3 + Mica** desktop app featuring cached pages (including **Copy Movies from Disc** with recursive subfolder scanning and parallel legacy-to-MP4 conversion), floating DropBox window, Fluent `ContentDialog`s (including **Rip Audio CD** with **Export Tracks to...**), multi-session disc capacity visualization, and automatic Audio Compilation / temp-rip session persistence across restarts.
+- **`src/CDBurner10.Upscaler`** (`CDBurner10.Upscaler.exe`) — Companion 64-bit **WinUI 3 + Mica** GPU video upscaling app powered by **`libmpv` + OpenGL GLSL shaders** (**Anime4K v4** modes `A`, `B`, `C`, `A+`, `B+`, `C+` in HQ & Fast tiers) and **ONNX Runtime (DirectML / CPU)** (**ArtCNN**), with FFmpeg H.264/HEVC encoding (NVENC / QSV / AMF / `libx264` / `libx265`), automatic deinterlacing, BT.709 color tagging, and SAR/DAR preservation.
+- **`tests/CDBurner10.Tests`** — Automated xUnit test suite covering compilations, session persistence, ISO converters, `libdvdnav` / `libdvdcss`, DVD-to-MP4, unfinalized DVD recovery, disc spanning, movie copying, settings, audio engine, and CLI execution.
+
+## CDBurner10 Upscaler
+
+**CDBurner10 Upscaler** (`CDBurner10.Upscaler.exe`) is a companion desktop & CLI tool for offline 2×/4× GPU video upscaling — ideal for DVD rips, animated movies, and archived home videos.
+
+- **Backends & Presets:**
+  - **libmpv + GLSL Shaders:** Anime4K v4 (`Anime4K_A`, `Anime4K_B`, `Anime4K_C`, `Anime4K_A_Plus`, `Anime4K_B_Plus`, `Anime4K_C_Plus`) with HQ and Fast shader tiers, rendered via an offscreen OpenGL context with async PBO readback.
+  - **ONNX Runtime (DirectML / CPU):** ArtCNN tiled neural upscaling presets.
+- **Encoding & Fidelity:** Supports H.264 and HEVC output (`.mp4` or `.mkv`) with automatic GPU encoder detection (`nvenc` / `qsv` / `amf`) and high-quality `libx264`/`libx265` CRF fallback, automatic deinterlacing, BT.709 color conversion, and preserved aspect ratio (SAR/DAR) & audio/subtitle streams.
+- **Requirements:** `ffmpeg` + `ffprobe` on `PATH` (e.g. `winget install Gyan.FFmpeg`) and `libmpv-2.dll` next to the executable (or configured in Upscaler Settings) for GLSL shader presets.
+- **CLI Usage:**
+  ```powershell
+  CDBurner10.Upscaler.exe --cli-upscale "<input-video>" <presetId> "<output-folder>" [mp4|mkv]
+
+  # Example (Anime4K B+ to MP4):
+  CDBurner10.Upscaler.exe --cli-upscale "D:\Movies\film.mp4" Anime4K_B_Plus "D:\Upscaled" mp4
+  ```
 
 ## Build & Run
 
@@ -30,9 +48,10 @@ dotnet build CDBurner10.sln -c Release -p:Platform=x64
 # Run tests
 dotnet test tests/CDBurner10.Tests/CDBurner10.Tests.csproj -c Release -p:Platform=x64
 
-# Publish self-contained 64-bit GUI & CLI to ./deploy
+# Publish self-contained 64-bit GUI, CLI & Upscaler to ./deploy
 dotnet publish src/CDBurner10.App/CDBurner10.App.csproj -c Release -p:Platform=x64 -o deploy
 dotnet publish src/CDBurner10.Cli/CDBurner10.Cli.csproj -c Release -p:Platform=x64 -o deploy
+dotnet publish src/CDBurner10.Upscaler/CDBurner10.Upscaler.csproj -c Release -p:Platform=x64 -o deploy
 
 # Build 64-bit MSI installer (requires WiX Toolset v7)
 .\installer\build-msi.ps1 -Version 10.x.x.x
